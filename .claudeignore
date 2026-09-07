@@ -1,0 +1,5 @@
+# graphify outputs — regenerated on every /graphify run; keep them out of
+# Claude Code context so re-indexing doesn't invalidate the prompt cache.
+# The graphify CLI reads these directly and is unaffected by this file.
+graphify-out/
+graph.json

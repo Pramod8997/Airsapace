@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Airspace Observatory tokens (UI_UX_DESIGN.md §6) */
+@theme {
+  --color-ink: #10141c;
+  --color-paper: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-muted: #5c6674;
+  --color-grid: #e3e7ee;
+  --color-signal: #1f5fd6;
+  --color-warning: #b8860b;
+  --color-critical: #c0392b;
+  --color-positive: #1d7a4f;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* observatory dark canvas for the route map */
+@theme {
+  --color-radar: #0a0f1a;
+  --color-radar-line: #1b2740;
+  --color-radar-glow: #2d4a8a;
+}
+
+html { color-scheme: light; }
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+}
+
+/* tabular numerals for statistical values (UI_UX_DESIGN.md §7) */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* visible focus everywhere (UI_UX_DESIGN.md §24) */
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
