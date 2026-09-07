@@ -384,6 +384,101 @@ Result: 42 passed
 
 ------------------------------------------------------------------------
 
+# 2026-09-08 --- "All pages empty": Root Cause Found + Fixed (AppRoutes never mounted)
+
+**Status:** DONE
+
+### Objective
+
+- User reported every dashboard page rendering empty; suspected a color-schema issue.
+
+### Root Cause
+
+- `AppRoutes` (defines all 9 lazy routes/pages) was **never imported or mounted anywhere**. `App.tsx` rendered `<Outlet />`, but App is not a layout route with children, so Outlet returned `null` → `<main>` empty on every URL. Silent: no console error, no Suspense fallback (fallback only covers lazy-import suspense, not a missing router).
+- Fingerprint that confirmed it: backend access log showed only app-shell queries (latest/quality/routes/airlines from header/footer/CommandPalette); zero page-level queries ever fired.
+
+### Work Completed
+
+- [x] Full audit: `tsc` clean, `vite build` clean, all dev modules HTTP 200, all API endpoints returning data — ruling out compile/CSS/API causes.
+- [x] Reproduced in clean headless Chromium (playwright-core, no extensions/cache): `#main` had 0 children on every route, zero console errors.
+- [x] Fix: `App.tsx` now imports and renders `<AppRoutes />` inside `<main>` (replaces the dangling `<Outlet />`); dropped unused `Outlet` import.
+- [x] Verified in headless browser: `/`, `/index`, `/routes`, `/sources`, `/methodology` all render live content (APIx 99.49, route observatory, methodology recipe), zero console/page/request errors.
+- [x] `tsc -b` + `vite build` pass after fix.
+
+### Files Changed
+
+``` text
+- frontend/src/App.tsx (mount AppRoutes; remove dead Outlet)
+- log.md (updated)
+```
+
+### Notes
+
+- The uncommitted Overview hook-order fix (hooks before early return) is still in the working tree and still correct — keep it.
+- User's screenshot showed a dark sidebar; this app is light-themed in a clean browser (navBg white) — likely a dark-mode browser extension on the user's side. Cosmetic only; unrelated to the empty pages.
+
+### Next Steps
+
+- [ ] Commit both frontend fixes (AppRoutes mount + Overview hook order).
+
+------------------------------------------------------------------------
+
+# 2026-09-08 --- Public GitHub README + Screenshot Assets
+
+**Status:** DONE
+
+### Objective
+
+- Professional, attractive, emoji-free README for GitHub; keep the existing build-docs README separate and untracked.
+
+### Work Completed
+
+- [x] Captured six full-page dashboard screenshots via headless Chromium (Overview, Route Observatory, Index, Data Quality, Methodology, Backtest) into `docs/screenshots/` — chart canvases verified rendered.
+- [x] Wrote new `README.md`: problem framing, pipeline stages, index methodology (formula, determinism, missing-data/outlier policies), architecture, verified tech stack, quick start, API table, dashboard screens, statistical-honesty section, repo layout, doc links. Shields badges (text only). Zero emoji (checked programmatically).
+- [x] Moved old README to `README_internal.md` — already covered by the pre-existing uncommitted `.gitignore` entry; confirmed ignored via `git check-ignore`.
+- [x] Re-ran backend tests after changes: 42 passed.
+
+### Files Changed
+
+``` text
+- README.md (new public README; old content moved out)
+- README_internal.md (local-only, gitignored)
+- docs/screenshots/*.png (new, 6 files)
+- log.md (updated)
+```
+
+### Notes
+
+- README claims verified against the running system: 42 tests, 10 routes / 5 lead-time windows / ~14.6k replay observations, base period 2026-06-25 to 2026-07-24, methodology APIX-v1.0.
+
+------------------------------------------------------------------------
+
+# 2026-09-08 --- .gitignore Fix: `lib/` Pattern Was Ignoring Frontend Source
+
+**Status:** DONE
+
+### Root Cause
+
+- The Python-packaging boilerplate pattern `lib/` (unanchored) also matched `frontend/src/lib/` — `airports.ts` and `format.ts` were ignored and **never committed**, so a fresh clone of the repo could not build the frontend (`App.tsx` and pages import from `./lib/format`).
+
+### Work Completed
+
+- [x] Anchored `lib/` and `lib64/` to the repository root (`/lib/`, `/lib64/`) with an explanatory comment.
+- [x] Verified `frontend/src/lib/*.ts` now appear as untracked (ready to commit) and no other project source files are wrongly ignored (swept `git status --ignored` excluding venv/caches: only `README_internal.md` and `data/airstat.db` remain ignored, both intentional).
+
+### Files Changed
+
+``` text
+- .gitignore (anchored lib/ lib64/)
+- log.md (updated)
+```
+
+### Next Steps
+
+- [ ] Commit `frontend/src/lib/airports.ts` and `frontend/src/lib/format.ts` together with the pending changes — the repo is broken on GitHub without them.
+
+------------------------------------------------------------------------
+
 # Development Entry Template
 
 \## YYYY-MM-DD ---

@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
+import { AppRoutes } from './AppRoutes'
 import { useLatest, useQuality } from './api/hooks'
 import { CommandPalette } from './components/CommandPalette'
 import { fmtNum, fmtPct } from './lib/format'
@@ -91,7 +92,7 @@ export default function App() {
           </ul>
         </nav>
         <main id="main" className="min-w-0 flex-1 px-4 py-6 lg:px-6">
-          <Outlet />
+          <AppRoutes />
         </main>
       </div>
       <FooterStrip />

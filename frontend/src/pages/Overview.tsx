@@ -14,14 +14,14 @@ export default function Overview() {
   const methodology = useMethodology()
   // national trend, weekly for a calm 30+ day pulse
   const history = useHistory({ frequency: 'WEEKLY' })
+  // all hooks before any early return — conditional hook calls blank the app
+  const topMovers = useRouteMovers(5, routes.data ?? []).data ?? []
 
   if (latest.isError) return <ErrorState error={latest.error} />
   if (latest.isPending) return <Loading label="Loading index" />
 
   const d = latest.data
   const completeness = quality.data ? quality.data.completeness * 100 : null
-
-  const topMovers = useRouteMovers(5, routes.data ?? []).data ?? []
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
