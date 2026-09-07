@@ -76,6 +76,16 @@ def seed_registries(session, base_start: date = BASE_PERIOD_START, base_end: dat
             policy_status="SYNTHETIC_DATA", robots_status="N/A_SYNTHETIC",
             rate_limit_per_hour=120, active=True, reliability=reliability,
         ))
+    # Simulated live feed for the realtime demo (collectors/sources/live_sim.py).
+    # Honest labeling: SIMULATED, never presented as real observed fares.
+    from collectors.sources.live_sim import SIM_SOURCE_META
+    for sid, (name, stype, reliability) in SIM_SOURCE_META.items():
+        session.add(Source(
+            id=sid, name=name, source_type=stype,
+            adapter_name="live-sim", adapter_version="1.0",
+            policy_status="SIMULATED", robots_status="N/A_SIM",
+            rate_limit_per_hour=120, active=True, reliability=reliability,
+        ))
     for route_id in ROUTES:
         origin, dest = route_id.split("-")
         session.add(Route(

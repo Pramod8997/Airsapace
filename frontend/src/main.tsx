@@ -8,7 +8,8 @@ import App from './App'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
+      staleTime: 5_000,
+      refetchInterval: 10_000, // live demo: poll while collect_demo loop runs
       retry: 1,
       refetchOnWindowFocus: false,
     },

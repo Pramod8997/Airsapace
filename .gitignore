@@ -42,6 +42,8 @@ venv.bak/
 .pytest_cache/
 .coverage
 .coverage.*
+coverage.xml
+*.lcov
 htmlcov/
 .tox/
 .nox/
@@ -55,6 +57,7 @@ node_modules/
 .vite/
 .eslintcache
 .oxlintcache
+.turbo/
 
 # Logs & Runtime Process Files
 logs/
@@ -64,15 +67,25 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+*.pid
+*.seed
 
 # Environment & Secrets (SECURITY.md: secrets must never enter source control)
 .env
 .env.*
 !.env.example
+!.env.sample
+!.env.template
 *.pem
 *.key
 *.cert
 *.crt
+*.token
+*.secret
+credentials.json
+client_secret*.json
+.secrets
+.secrets.*
 
 # Databases & Local Data Storage
 *.db
@@ -93,6 +106,10 @@ README_internal.md
 graphify-out/
 graph.json
 .gemini/
+.claude/
+.agents/
+.cursor/
+.windsurf/
 
 # Operating System Files
 .DS_Store
@@ -113,6 +130,16 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+*.sw?
+*.un~
 *~
+*.bak
+*.tmp
+*.temp
 *.sublime-workspace
 *.sublime-project
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+.zed/
