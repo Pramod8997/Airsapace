@@ -339,6 +339,7 @@ Result: full pipeline green — replay skipped (present), seed + 42 tests passed
 
 - Plain bash + cmd (not Makefile/just/task) — zero extra tooling, works on both targets with identical interfaces.
 - make.bat is untested on real Windows (no Windows machine in this session) — flagged as the known limitation; structure mirrors make.sh 1:1.
+- make.sh takes a pid-based pipeline lock (`/tmp/airstat/pipeline.lock`) — two concurrent seeds corrupt the SQLite DB (verified the hard way: an overlapping verification run caused `database is locked` errors and a partial re-ingest with zero index values; clean re-run restored everything).
 
 ### Blockers
 

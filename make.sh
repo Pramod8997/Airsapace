@@ -22,15 +22,15 @@ RUN_DIR="/tmp/airstat"
 LOCK="$RUN_DIR/pipeline.lock"
 mkdir -p "$RUN_DIR"
 
+log()  { printf '\033[1;34m[make]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[make]\033[0m %s\n' "$*" >&2; }
+
 # pipeline lock — seed.py drop_all + SQLite cannot tolerate concurrent runs
 if [[ -e "$LOCK" ]] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
   warn "another make.sh is running (pid $(cat "$LOCK")) — refusing to start. Stop it with ./make.sh --stop (kills its servers too) or kill $(cat "$LOCK")."
   exit 1
 fi
 echo $$ > "$LOCK"
-
-log()  { printf '\033[1;34m[make]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[make]\033[0m %s\n' "$*" >&2; }
 
 stop_existing() {
   for pidfile in "$RUN_DIR/api.pid" "$RUN_DIR/ui.pid"; do
