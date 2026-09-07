@@ -19,7 +19,15 @@ UI_PORT="${UI_PORT:-5173}"
 API_PID=""
 UI_PID=""
 RUN_DIR="/tmp/airstat"
+LOCK="$RUN_DIR/pipeline.lock"
 mkdir -p "$RUN_DIR"
+
+# pipeline lock — seed.py drop_all + SQLite cannot tolerate concurrent runs
+if [[ -e "$LOCK" ]] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
+  warn "another make.sh is running (pid $(cat "$LOCK")) — refusing to start. Stop it with ./make.sh --stop (kills its servers too) or kill $(cat "$LOCK")."
+  exit 1
+fi
+echo $$ > "$LOCK"
 
 log()  { printf '\033[1;34m[make]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[make]\033[0m %s\n' "$*" >&2; }
@@ -65,7 +73,11 @@ start_ui() {
   warn "dashboard failed to start — check $RUN_DIR/ui.log"; return 1
 }
 
-trap '[[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true' EXIT
+cleanup() {
+  rm -f "$LOCK"
+  [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 case "${1:-build}" in
   --stop)
