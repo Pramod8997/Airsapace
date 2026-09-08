@@ -24,7 +24,9 @@ parts/
 sdist/
 var/
 wheels/
+*.whl
 share/python-wheels/
+pip-wheel-metadata/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -58,6 +60,7 @@ node_modules/
 .eslintcache
 .oxlintcache
 .turbo/
+*.tsbuildinfo
 
 # Logs & Runtime Process Files
 logs/
@@ -110,6 +113,7 @@ graph.json
 .agents/
 .cursor/
 .windsurf/
+.antigravity/
 
 # Operating System Files
 .DS_Store
@@ -128,6 +132,7 @@ Thumbs.db
 !.vscode/launch.json
 !.vscode/extensions.json
 .idea/
+*.iml
 *.swp
 *.swo
 *.sw?

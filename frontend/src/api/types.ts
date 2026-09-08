@@ -153,6 +153,53 @@ export interface BacktestRun {
   created_at: string
 }
 
+export interface Anomaly {
+  route_id: string
+  origin: string
+  destination: string
+  lead_time: number
+  current_date: string
+  current_median: number
+  window_median: number
+  change_pct: number
+  source_confirmations: number
+  sources_seen: number
+  sold_out_share: number
+  severity: 'SHOCK' | 'ELEVATED' | 'DIP'
+  explanation: {
+    lead_window: string
+    source_confirmation: string
+    availability: string
+    comparison: string
+  }
+}
+
+export interface AnomalyReport {
+  anomalies: Anomaly[]
+  model_version: string
+  as_of: string | null
+  disclaimer: string
+}
+
+export interface ForecastPoint {
+  date: string
+  value: number
+}
+
+export interface Forecast {
+  model_version: string
+  horizon_days: number
+  methodology_version: string
+  history: IndexPoint[]
+  fitted: ForecastPoint[]
+  forecast: ForecastPoint[]
+  params: { alpha: number; beta: number }
+  in_sample_rmse: number
+  holdout_rmse: number | null
+  method: string
+  disclaimer: string // forecast, not observed price — honesty invariant
+}
+
 export interface Health { status: string; data_mode: string; app_env: string; database: string }
 
 const BASE = '/api/v1'
@@ -186,5 +233,8 @@ export const api = {
   quality: (windowDays = 30) => get<Quality>('/quality', { window_days: windowDays }),
   methodology: () => get<Methodology>('/methodology'),
   backtests: () => get<BacktestRun[]>('/backtests'),
+  anomalies: (p: { window_days?: number; threshold_pct?: number; route_id?: string } = {}) =>
+    get<AnomalyReport>('/anomalies', p),
+  forecast: (horizonDays = 7) => get<Forecast>('/forecast', { horizon_days: horizonDays }),
   health: () => get<Health>('/health'),
 }

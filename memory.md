@@ -23,11 +23,11 @@ Overall: Backend core + dashboard working end-to-end (replay → clean → index
 Backend: WORKING — FastAPI, all FR-16 endpoints, 42 tests green (auth/RBAC deferred; no write endpoints yet)
 Frontend: WORKING — React 19 + TS + Vite + Tailwind v4 + ECharts + TanStack Query; 9 Airspace Observatory screens; dev-proxy same-origin
 Database: WORKING — SQLite dev default at data/airstat.db; PostgreSQL-ready via DATABASE_URL (TRD target unchanged)
-Collectors: SKELETON — FlightSource contract + canonical models exist; 5 synthetic demo sources; no live adapters yet
-Statistical Engine: WORKING — APIX-v1.0 deterministic Laspeyres, MAD outliers, QS-v1 quality, versioned + input-hash fingerprinted
-Backtesting: WORKING — vs SYNTHETIC reference (labeled, not DGCA); real DGCA series pending
+Collectors: WORKING (real + demo mix) — FlightSource contract; 5 sim-live; ethical scraping engine (robots gate, rate limit, CAPTCHA/Akamai/Cloudflare detection, never bypass); local demo portal; REAL sources: Alliance Air tariff PDF, Akasa Air fare-sheet PDF (both PUBLISHED_TARIFF_PDF), Yatra SEO route fares (ROBOTS_ALLOWED_SEO, fixture-backed, YATRA_LIVE=1 for live). 14 sources, honest policy_status labels.
+Statistical Engine: WORKING — APIX-v1.0 deterministic Laspeyres, MAD outliers, QS-v1 quality, versioned + input-hash fingerprinted; aux read-only layers: FORECAST-v1 (Holt linear, never touches index) + anomaly detection
+Backtesting: WORKING — vs MoSPI CPI Airfare sub-index (2024=100, All India Combined; live eSankhyiki series, fixture committed); synthetic fallback only if fixture + live fetch both fail
 Security: PARTIAL — headers, rate limit, validation, CORS allowlist; auth/RBAC/audit-write deferred
-Testing: PASSING — .venv/bin/python -m pytest backend/tests -q → 42 passed; frontend: npx tsc -b && npm run build → clean
+Testing: PASSING — .venv/bin/python -m pytest backend/tests -q → 119 passed, 1 skipped; frontend: npx tsc -b && npm run build → clean
 Deployment: NOT STARTED (Docker Compose when daemon available); one-command pipeline: ./make.sh (Linux) / make.bat (Windows) — venv→data→seed→tests→API→UI
 ```
 
@@ -68,7 +68,7 @@ Quick-reference only (kept here because it's one line and load-bearing): `I_t = 
 - Dev DB = SQLite via `DATABASE_URL` default (local Docker daemon off); PostgreSQL stays the production target — no PG-specific SQL in the codebase.
 - Python 3.10 venv on this machine (no 3.12, 3.11 lacks ensurepip); code kept 3.10+ compatible.
 - Prototype uses `create_all`; Alembic deferred until the schema stabilises.
-- Backtest reference series is synthetic and labeled as such everywhere — never present it as DGCA data.
+- Backtest reference is the MoSPI CPI "Airfare" sub-index (exact CPI component APIx augments — strong framing for MoSPI judges). Never claim methodological equivalence: co-movement (correlation/trend-direction) framing only, and APIx is daily while the CPI item is monthly (APIx resampled to monthly means before comparing). Never present it as DGCA data — DGCA monthly average fares were proven unpublished.
 
 **Agent Tooling** (2026-09-08)
 - Claude Code plugins installed (user scope, this machine only — teammates install separately, commands in `prompt.md`): `ponytail` v4.9.0 (anti-overengineering discipline; active by default, mode `full`), `ui-ux-pro-max` v2.13.0.
@@ -80,17 +80,23 @@ Quick-reference only (kept here because it's one line and load-bearing): `I_t = 
 ## 5. Current Sprint
 
 ```text
-Sprint: Backend core → dashboard
-Start: 2026-09-08
+Sprint: Real data layer + ML auxiliary layer (post core+dashboard)
+Start: 2026-09-09
 End: (open)
 
 Primary objective: smallest correct system per CLAUDE.md §6, then make it impressive.
 
 Tasks:
 - [x] Canonical data model + cleaning + deterministic index + replay + backtest + API (2026-09-08, see log.md)
-- [x] React dashboard consuming the API (Airspace Observatory, 9 screens) (2026-09-08, see log.md)
-- [ ] First live source adapters + APScheduler behind FlightSource contract
+- [x] React dashboard consuming the API (Airspace Observatory, 9→11 screens) (2026-09-08/09, see log.md)
+- [x] DGCA-derived route weights (WB-2026.09-DGCA, city-pair July 2026) (2026-09-09, see log.md)
+- [x] CPI Airfare backtest reference replacing synthetic (2026-09-09, see log.md)
+- [x] Real sources: Yatra (ROBOTS_ALLOWED_SEO), Akasa + Alliance tariff PDFs (2026-09-09, see log.md)
+- [x] Ethical scraping engine rebuild incl. anti-bot detection; sim portal; full demo rotation (2026-09-09, see log.md)
+- [x] ML auxiliary layer: ANOMALY-v1 (+ /anomalies + screen) + FORECAST-v1 (+ /forecast + Overview overlay) + lead-time elasticity (2026-09-09, see log.md)
+- [ ] APScheduler for scheduled collection behind FlightSource contract
 - [ ] Auth (JWT + RBAC) before any write/admin endpoint
+- [ ] Commit the session (large diff: rebuild + real sources + ML layer)
 ```
 
 ## 6. Current Blockers
@@ -127,13 +133,15 @@ Tasks:
 | 2026-09-08 | Synthetic backtest reference series, explicitly labeled non-DGCA | Demo the backtest workflow before real DGCA data arrives | Team |
 | 2026-09-08 | Frontend consumes API same-origin via Vite dev proxy; CORS allowlist stays empty | No dev-time CORS loosening; production serves frontend behind same origin | Team |
 | 2026-09-08 | Tailwind v4 CSS-first tokens (not v3 config) — palette per UI_UX_DESIGN.md §6 unchanged | Current major of the TRD-named stack; smallest config surface | Team |
+| 2026-09-09 | Route weights from DGCA DOM city-pair passenger data (July 2026), version WB-2026.09-DGCA; loader `scripts/load_dgca_weights.py`, fixture `data/fixtures/dgca_citypair_weights.json`; placeholder dict kept as fallback | PS 26056: basket "selected on the basis of DGCA passenger-traffic data" — real data now available | Team |
+| 2026-09-09 | Backtest reference = MoSPI CPI Airfare sub-index (2024=100, All India Combined, item 294) via eSanklyiki; loaders `collectors/sources/mospi_cpi.py` + `scripts/load_cpi_backtest.py`, offline fixture committed; synthetic fallback retained | PS 26056 demands a 30-day backtest "against publicly available DGCA monthly average-fare data", which research proved was never published — CPI Airfare is the honest official replacement (and the exact component APIx augments) | Team |
 
 ---
 
 ## 9. Open Questions
 
-- [ ] Exact official route basket and weight source.
-- [ ] Exact DGCA historical reference dataset and mapping.
+- [x] Exact official route basket and weight source. RESOLVED 2026-09-09: route weights derive from DGCA DOM city-pair July 2026 passenger data (fixture committed; regenerate via `scripts/load_dgca_weights.py --refetch`). Basket composition itself still follows the 10-route demo basket; a future DGCA traffic-volume-ranked basket would be a methodology change.
+- [ ] Exact DGCA historical reference dataset and mapping. RESOLVED (frozen 2026-09-09): DGCA monthly average-fare data does NOT exist publicly (deep research verified). Official backtest reference is instead the MoSPI CPI "Airfare" sub-index (2024=100, All India, Combined, item 294) from eSankhyiki — the exact CPI component APIx augments. Loader `collectors/sources/mospi_cpi.py`, fixture `data/fixtures/cpi_airfare.json`, CLI `scripts/load_cpi_backtest.py` (refresh via `--live`). Co-movement framing only, never equivalence.
 - [ ] Final source list permitted for automated collection.
 - [ ] Final deployment target.
 - [ ] Final authentication provider.

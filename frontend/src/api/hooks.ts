@@ -13,6 +13,7 @@ export const qk = {
   methodology: ['methodology'] as const,
   backtests: ['backtests'] as const,
   fares: (params: Record<string, string | number | undefined>) => ['fares', params] as const,
+  anomalies: (windowDays: number, thresholdPct: number) => ['anomalies', windowDays, thresholdPct] as const,
 }
 
 export const useLatest = () => useQuery({ queryKey: qk.latest, queryFn: api.indexLatest })
@@ -26,6 +27,8 @@ export const useMethodology = () => useQuery({ queryKey: qk.methodology, queryFn
 export const useBacktests = () => useQuery({ queryKey: qk.backtests, queryFn: api.backtests })
 export const useFares = (params: Record<string, string | number | undefined>, enabled = true) =>
   useQuery({ queryKey: qk.fares(params), queryFn: () => api.fares(params), enabled })
+export const useAnomalies = (windowDays = 30, thresholdPct = 25) =>
+  useQuery({ queryKey: qk.anomalies(windowDays, thresholdPct), queryFn: () => api.anomalies({ window_days: windowDays, threshold_pct: thresholdPct }) })
 
 /** Route 7D change = last daily value vs value 7 days back, per route (used by Route Pressure). */
 export function useRouteMovers(topN = 5, routes?: Route[]) {
@@ -54,3 +57,7 @@ export function useRouteMovers(topN = 5, routes?: Route[]) {
     enabled: routeIds.length > 0,
   })
 }
+
+/** Forecast of the national APIx series — model extrapolation, not observed. */
+export const useForecast = (horizonDays = 7) =>
+  useQuery({ queryKey: ['forecast', horizonDays] as const, queryFn: () => api.forecast(horizonDays) })

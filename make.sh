@@ -6,6 +6,7 @@
 #   ./make.sh            full pipeline (regenerates replay data if missing, fresh seed, starts servers)
 #   ./make.sh --keep     re-seed without dropping tables (keeps existing data)
 #   ./make.sh --serve    skip pipeline, just start both servers
+#   ./make.sh --demo     FULL EXPERIENCE: pipeline + servers + sim portal + 1s collector loop
 #   ./make.sh --stop     stop any AirStat servers started by this script
 #   ./make.sh --test     run backend tests only
 #   ./make.sh --fresh-data  force regeneration of the replay dataset
@@ -18,6 +19,8 @@ API_PORT="${API_PORT:-8000}"
 UI_PORT="${UI_PORT:-5173}"
 API_PID=""
 UI_PID=""
+PORTAL_PID=""
+COLLECTOR_PID=""
 RUN_DIR="/tmp/airstat"
 LOCK="$RUN_DIR/pipeline.lock"
 mkdir -p "$RUN_DIR"
@@ -33,7 +36,7 @@ fi
 echo $$ > "$LOCK"
 
 stop_existing() {
-  for pidfile in "$RUN_DIR/api.pid" "$RUN_DIR/ui.pid"; do
+  for pidfile in "$RUN_DIR/api.pid" "$RUN_DIR/ui.pid" "$RUN_DIR/portal.pid" "$RUN_DIR/collector.pid"; do
     if [[ -f "$pidfile" ]]; then
       pid=$(cat "$pidfile")
       if kill "$pid" 2>/dev/null; then log "stopped $pidfile pid=$pid"; fi
@@ -73,13 +76,38 @@ start_ui() {
   warn "dashboard failed to start — check $RUN_DIR/ui.log"; return 1
 }
 
+start_portal() {
+  log "starting sim fare portal on :8811 (robots.txt-gated scrape target)"
+  nohup "$PY" scripts/serve_sim_portal.py >"$RUN_DIR/portal.log" 2>&1 &
+  PORTAL_PID=$!
+  echo "$PORTAL_PID" > "$RUN_DIR/portal.pid"
+  for _ in $(seq 1 20); do
+    curl -sf "http://127.0.0.1:8811/robots.txt" >/dev/null 2>&1 && { log "portal healthy (pid $PORTAL_PID)"; return 0; }
+    sleep 1
+  done
+  warn "portal failed to start — check $RUN_DIR/portal.log"; return 1
+}
+
+start_collector() {
+  local interval="${1:-1}"
+  log "starting collector loop: fresh collection every ${interval}s (DB auto-pruned to 90 virtual days)"
+  nohup "$PY" scripts/collect_demo.py --interval "$interval" >"$RUN_DIR/collector.log" 2>&1 &
+  COLLECTOR_PID=$!
+  echo "$COLLECTOR_PID" > "$RUN_DIR/collector.pid"
+  log "collector running (pid $COLLECTOR_PID) — dashboard auto-refreshes every 10s"
+}
+
 cleanup() {
   rm -f "$LOCK"
   [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
+  [[ -n "$PORTAL_PID" ]] && kill "$PORTAL_PID" 2>/dev/null || true
+  [[ -n "$COLLECTOR_PID" ]] && kill "$COLLECTOR_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-case "${1:-build}" in
+ARG="${1:-}"
+
+case "$ARG" in
   --stop)
     stop_existing
     exit 0
@@ -100,7 +128,7 @@ case "${1:-build}" in
     ;;
 
   *)
-    MODE="${1:-}"
+    MODE="$ARG"
 
     # 1. environment
     if [[ ! -x "$PY" ]]; then
@@ -130,9 +158,15 @@ case "${1:-build}" in
     stop_existing || true
     start_api
     start_ui
+
+    # 6. demo mode: portal + collector loop
+    if [[ "$MODE" == "--demo" ]]; then
+      start_portal || warn "continuing without portal (sim sources still cycle)"
+      start_collector 1
+    fi
     log "pipeline complete"
     log "dashboard: http://localhost:$UI_PORT  ·  API: http://127.0.0.1:$API_PORT/health"
-    log "logs in $RUN_DIR/{api,ui}.log — stop with ./make.sh --stop"
+    log "logs in $RUN_DIR/{api,ui,portal,collector}.log — stop with ./make.sh --stop"
     wait
     ;;
 esac

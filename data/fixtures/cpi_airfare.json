@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "name": "MoSPI CPI Airfare sub-index (2024=100, All India Combined) \u2014 official eSanklyiki series",
+    "fields": "date (YYYY-MM-01), value (CPI index)"
+  },
+  "points": [
+    {
+      "date": "2025-10-01",
+      "value": 108.19
+    },
+    {
+      "date": "2025-11-01",
+      "value": 121.45
+    },
+    {
+      "date": "2025-12-01",
+      "value": 124.23
+    },
+    {
+      "date": "2026-05-01",
+      "value": 127.62
+    },
+    {
+      "date": "2026-06-01",
+      "value": 126.09
+    },
+    {
+      "date": "2026-07-01",
+      "value": 125.46
+    }
+  ]
+}

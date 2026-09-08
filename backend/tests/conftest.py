@@ -11,6 +11,9 @@ from zoneinfo import ZoneInfo
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["API_RATE_LIMIT"] = "10000/minute"  # don't fight the limiter in tests
+# Tests must never depend on the network or ambient shell env: force every
+# live-capable adapter (Yatra) into fixture mode, whatever the shell exported.
+os.environ.pop("YATRA_LIVE", None)
 
 from backend.app import config as _config  # noqa: E402
 from backend.app.db import create_all, reset_engine_for_tests, session_scope  # noqa: E402
@@ -27,7 +30,7 @@ from scripts.seed import (  # noqa: E402
 IST = ZoneInfo("Asia/Kolkata")
 TEST_START = date(2026, 7, 1)
 BASE_DAYS = 5  # base period 2026-07-01..07-05
-SERIES_DAYS = 7  # index days 07-06..07-12
+SERIES_DAYS = 30  # index days 07-06..08-04 (forecast needs >= 20)
 TEST_ROUTES = ["DEL-BOM", "DEL-BLR"]
 TEST_LEADS = [1, 7]
 

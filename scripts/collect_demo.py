@@ -25,16 +25,25 @@ from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from backend.app.db import session_scope
-from backend.app.models import ScrapeJob
+from backend.app.models import FareQuote, QualityAssessment, RawObservation, ScrapeJob
 from backend.app.services.index_runner import national_series, run_index_calculation
 from backend.app.services.pipeline import JobSpec, flag_day_outliers, ingest_quotes
 from collectors.core.models import FlightSearchQuery
 from collectors.sources.live_sim import ROUTE_BASE, SIM_SOURCE_IDS, LiveSimSource
+
+from collectors.core.base_source import SourcePolicyError
+from collectors.sources.scrape_engine import LiveSimPortal
+from collectors.sources.yatra import YatraSource
+
+# Routes with saved Yatra fixtures (real SEO fare strips; live mode via YATRA_LIVE=1).
+YATRA_ROUTES = {"DEL-BOM", "DEL-CCU", "BOM-BLR"}
 from scripts.generate_replay_data import LEAD_MULTIPLIER
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -47,7 +56,37 @@ def next_collection_day(session) -> date:
     return (latest or date.today() - timedelta(days=1)) + timedelta(days=1)
 
 
-async def one_cycle(days: int = 1) -> None:
+def prune_demo_data(session, keep_days: int = 90) -> dict:
+    """Demo retention: drop observation tables older than keep_days (by the
+    virtual clock — max collection date, not wall time). IndexValues and the
+    newest CalculationRuns are never touched (immutable published results);
+    pruning quotes only affects *future* recomputation, never persisted index
+    dates. In production this is a policy decision, not a hardcoded prune.
+    # ponytail: whole-window DELETE per cycle; batch if rows > millions.
+    """
+    newest = session.scalar(select(func.max(FareQuote.collection_date)))
+    if newest is None:
+        return {"pruned_quotes": 0}
+    cutoff = newest - timedelta(days=keep_days)
+
+    qa_gone = session.execute(delete(QualityAssessment).where(
+        QualityAssessment.quote_id.in_(
+            select(FareQuote.id).where(FareQuote.collection_date < cutoff)
+        )
+    )).rowcount
+    raw_gone = session.execute(delete(RawObservation).where(
+        RawObservation.collected_at < datetime.combine(cutoff, dtime(0, 0), tzinfo=IST)
+    )).rowcount
+    quotes_gone = session.execute(delete(FareQuote).where(
+        FareQuote.collection_date < cutoff
+    )).rowcount
+    jobs_gone = session.execute(delete(ScrapeJob).where(
+        ScrapeJob.collection_date < cutoff
+    )).rowcount
+    return {"pruned_quotes": quotes_gone, "raw": raw_gone, "jobs": jobs_gone, "qa": qa_gone}
+
+
+async def one_cycle(days: int = 1, prune_keep_days: int = 90) -> None:
     stored_total = 0
     flagged_total = 0
     latest = None
@@ -71,7 +110,61 @@ async def one_cycle(days: int = 1) -> None:
                             collection_date=day, started_at=now,
                         ), quotes)
                         stored_total += result.stored
-                flagged_total += flag_day_outliers(session, day)
+                # Real sources: Yatra SEO route pages (fixture-backed by default,
+                # YATRA_LIVE=1 for live). One fetch per route per cycle; the 7-day
+                # strip quotes carry their true advance_days (6-13) — the job slot
+                # is lead_time=7, the nearest basket bucket (documented convention).
+                if route_id in YATRA_ROUTES:
+                    quotes = await YatraSource().search(FlightSearchQuery(
+                        origin=origin, destination=dest,
+                        departure_date=day + timedelta(days=7),
+                        advance_days=7,
+                    ))
+                    result = ingest_quotes(session, JobSpec(
+                        source_id="yatra-ota", route_id=route_id,
+                        departure_date=day + timedelta(days=7), lead_time=7,
+                        collection_date=day, started_at=now,
+                    ), quotes)
+                    stored_total += result.stored
+                # Scrape-portal-demo participates when the local sim portal is up
+                # (robots.txt-gated compliant scraping of our demo target).
+                try:
+                    quotes = await LiveSimPortal().search(FlightSearchQuery(
+                        origin=origin, destination=dest,
+                        departure_date=day + timedelta(days=7),
+                        advance_days=7,
+                    ))
+                    result = ingest_quotes(session, JobSpec(
+                        source_id="scrape-portal-demo", route_id=route_id,
+                        departure_date=day + timedelta(days=7), lead_time=7,
+                        collection_date=day, started_at=now,
+                    ), quotes)
+                    stored_total += result.stored
+                except SourcePolicyError as exc:
+                    print(f"  scrape-portal: policy pause ({exc}) — recorded, not bypassed")
+                except (RuntimeError, OSError, httpx.HTTPError):  # ConnectError et al.
+                    pass  # portal not running; sim sources carry the cycle
+                # Real tariff PDFs (advance-agnostic) — handled once per cycle below.
+            # Document-collection jobs (advance-agnostic tariff PDFs, one ingest per day):
+            try:
+                from collectors.sources.alliance_tariff import load_alliance_tariff
+                result = load_alliance_tariff(session, day)
+                stored_total += result["stored"]
+            except FileNotFoundError:
+                pass  # fixture absent — sim sources carry the demo
+            except Exception as exc:
+                print(f"  alliance tariff: skipped ({type(exc).__name__}: {exc})")
+            try:
+                from collectors.sources.akasa_tariff import load_akasa_tariff
+                stored = load_akasa_tariff(session, day)
+                stored_total += stored
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                print(f"  akasa tariff: skipped ({type(exc).__name__}: {exc})")
+        flagged_total += flag_day_outliers(session, day)
+        # Retention: keep the DB bounded in the looping demo (virtual-clock based).
+        pruned = prune_demo_data(session, prune_keep_days)
         run = run_index_calculation(session)
         series = national_series(session, run.methodology_version)
         if len(series) >= 2:
@@ -84,7 +177,8 @@ async def one_cycle(days: int = 1) -> None:
                   f"{'+' if delta >= 0 else ''}{delta:.2f} vs {prev.date}")
         elif latest:
             print(f"index run #{run.id}: latest APIx {latest.value:.2f} ({latest.date})")
-        print(f"  quotes stored={stored_total}, outliers flagged={flagged_total}")
+        pruned_note = f", pruned={pruned['pruned_quotes']}" if pruned["pruned_quotes"] else ""
+        print(f"  quotes stored={stored_total}, outliers flagged={flagged_total}{pruned_note}")
 
 
 def main() -> None:

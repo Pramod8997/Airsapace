@@ -1,0 +1,28 @@
+{
+  "source": "DGCA DOM city-pair data July 2026",
+  "url": "https://public-prd-dgca.s3.ap-south-1.amazonaws.com/InventoryList/dataReports/aviationDataStatistics/airTransport/domestic/airTraffic/monthly/DOM CITYPAIR DATA, JULY 2026.xlsx",
+  "route_weights": {
+    "DEL-BOM": 0.1655,
+    "DEL-BLR": 0.123486,
+    "BOM-BLR": 0.110043,
+    "DEL-CCU": 0.069338,
+    "BLR-HYD": 0.052244,
+    "MAA-DEL": 0.051104,
+    "BOM-DEL": 0.157465,
+    "BLR-DEL": 0.121306,
+    "HYD-DEL": 0.077296,
+    "CCU-DEL": 0.072219
+  },
+  "route_pax": {
+    "DEL-BOM": 258552,
+    "DEL-BLR": 192916,
+    "BOM-BLR": 171914,
+    "DEL-CCU": 108324,
+    "BLR-HYD": 81618,
+    "MAA-DEL": 79837,
+    "BOM-DEL": 245999,
+    "BLR-DEL": 189511,
+    "HYD-DEL": 120755,
+    "CCU-DEL": 112824
+  }
+}

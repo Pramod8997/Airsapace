@@ -1,9 +1,31 @@
 /** Sources: registry + cross-source consensus bar per route (UI_UX_DESIGN.md §15) and health list. */
-import { useMemo } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, ErrorState, Loading, MetricTile } from '../components/ui'
 import { useFares, useQuality, useSources } from '../api/hooks'
 import { fmtDate, fmtINR, fmtInt, fmtTime, healthOf } from '../lib/format'
+
+/** policy_status → badge style + honest one-line legend. Real permitted sources get the
+ *  positive token; demo/simulated are neutral so the data-provenance difference is visible at a glance. */
+const POLICY_META: Record<string, { cls: string; short: string; legend: string }> = {
+  PUBLISHED_TARIFF_PDF: { cls: 'border border-positive/50 bg-positive/10 text-positive', short: 'Published tariff', legend: 'airline-published filed fares from official PDF fare sheets — filed tariffs, not transaction prices' },
+  ROBOTS_ALLOWED_SEO: { cls: 'border border-positive/50 bg-positive/10 text-positive', short: 'Robots-allowed', legend: 'robots.txt permits collection and pages are server-rendered public content (e.g. Yatra SEO route pages)' },
+  DEMO_SCRAPING_COMPLIANT: { cls: 'border border-warning/50 bg-warning/10 text-warning', short: 'Demo scraping', legend: 'local demo portal built for this project — exercises the real compliant scraping engine, but is not a live external source' },
+  SIMULATED: { cls: 'border border-grid bg-grid/40 text-muted', short: 'Simulated', legend: 'simulated live feed for the realtime demo — prices are generated, never presented as observed fares' },
+  SYNTHETIC_DATA: { cls: 'border border-grid bg-grid/40 text-muted', short: 'Synthetic', legend: 'synthetic replay data so the dashboard never depends on live scraping — clearly labeled demo data' },
+  UNKNOWN: { cls: 'border border-grid bg-grid/40 text-muted', short: 'Unknown', legend: 'policy not classified' },
+}
+
+function PolicyBadge({ status }: { status: string }) {
+  const meta = POLICY_META[status] ?? { cls: POLICY_META.UNKNOWN.cls, short: status, legend: status }
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide ${meta.cls}`}
+      title={meta.legend}
+    >
+      {meta.short}
+    </span>
+  )
+}
 
 export default function SourcesPage() {
   const sources = useSources()
@@ -84,7 +106,7 @@ export default function SourcesPage() {
           )}
         </Card>
 
-        <Card title="Source registry">
+        <Card title="Source registry" right={<a className="text-xs text-muted underline" href="../../docs/research_sources.md" target="_blank" rel="noreferrer">Compliance research</a>}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-grid text-left text-[11px] tracking-widest text-muted uppercase">
@@ -96,13 +118,25 @@ export default function SourcesPage() {
                 <tr key={s.id} className="border-b border-grid/60">
                   <td className="py-1.5 font-medium">{s.name}</td>
                   <td className="text-muted">{s.source_type}</td>
-                  <td className="text-muted">{s.policy_status} · robots {s.robots_status}</td>
+                  <td><PolicyBadge status={s.policy_status} /> <span className="ml-1 text-xs text-muted">robots {s.robots_status}</span></td>
                   <td className="tnum text-right text-muted">{fmtInt(s.rate_limit_per_hour)}</td>
                   <td className="tnum text-right">{(s.reliability * 100).toFixed(0)}%</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <h3 className="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Policy legend</h3>
+          <ul className="mt-2 space-y-1.5 text-xs">
+            {[...new Set(sources.data.map((s) => s.policy_status))].map((status) => {
+              const meta = POLICY_META[status] ?? { cls: '', short: status, legend: status }
+              return (
+                <li key={status} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide ${meta.cls}`}>{meta.short}</span>
+                  <span className="text-muted"><span className="tnum">{status}</span> — {meta.legend}</span>
+                </li>
+              )
+            })}
+          </ul>
         </Card>
       </div>
 

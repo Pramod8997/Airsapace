@@ -86,7 +86,7 @@ def test_registries(api_client):
     assert {"6E", "AI"} <= {a["iata"] for a in airlines}
 
     sources = api_client.get("/api/v1/sources").json()
-    assert len(sources) == 10  # 5 replay + 5 simulated live
+    assert len(sources) == 14  # 5 replay + 5 sim + portal + alliance + akasa + yatra
     sim = [s for s in sources if s["id"].startswith("sim-")]
     assert len(sim) == 5 and all(s["policy_status"] == "SIMULATED" for s in sim)
 

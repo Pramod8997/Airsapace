@@ -157,6 +157,48 @@ class BacktestOut(BaseModel):
     created_at: datetime
 
 
+class AnomalyOut(BaseModel):
+    route_id: str
+    origin: str
+    destination: str
+    lead_time: int
+    current_date: date
+    current_median: float
+    window_median: float
+    change_pct: float
+    source_confirmations: int
+    sources_seen: int
+    sold_out_share: float
+    severity: str  # SHOCK | ELEVATED | DIP
+    explanation: dict  # evidence strings (UI_UX_DESIGN.md §20)
+
+
+class AnomalyReportOut(BaseModel):
+    anomalies: list[AnomalyOut]
+    model_version: str
+    as_of: Optional[date] = None
+    disclaimer: str
+
+
+class ForecastPointOut(BaseModel):
+    date: date
+    value: float
+
+
+class ForecastOut(BaseModel):
+    model_version: str
+    horizon_days: int
+    methodology_version: str
+    history: list[IndexPointOut]
+    fitted: list[ForecastPointOut]
+    forecast: list[ForecastPointOut]
+    params: dict[str, float]
+    in_sample_rmse: float
+    holdout_rmse: Optional[float] = None
+    method: str
+    disclaimer: str  # forecast, not observed price — honesty invariant
+
+
 class HealthOut(BaseModel):
     status: str
     data_mode: str

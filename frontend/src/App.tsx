@@ -14,6 +14,7 @@ const NAV = [
   { to: '/fare-decomposition', label: 'Decomposition' },
   { to: '/sources', label: 'Sources' },
   { to: '/quality', label: 'Quality' },
+  { to: '/anomalies', label: 'Anomalies' },
   { to: '/backtesting', label: 'Backtest' },
   { to: '/methodology', label: 'Method' },
 ]

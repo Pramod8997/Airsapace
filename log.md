@@ -662,3 +662,525 @@ Result:
 -   [ ] Architecture documentation
 -   [ ] SIH presentation
 -   [ ] Final demo rehearsal
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- DGCA Route Weights (replaces placeholder)
+
+**Status:** DONE
+
+## What
+
+Replaced the placeholder route-weight dict in `scripts/seed.py` with weights
+derived from real DGCA city-pair passenger data, closing the "weights must be
+sourced and versioned" open question for route weights.
+
+-   Downloaded and parsed `data/fixtures/dgca_citypair_jul2026.xlsx` (DGCA
+    "DOM CITYPAIR DATA, JULY 2026", public S3). Sheet layout: one row per
+    unordered city pair, columns `PASSENGERS TO CITY 2` / `PASSENGERS FROM
+    CITY 2` (directional). Mumbai appears as two airport rows (Mumbai +
+    Navi Mumbai), both summed into the city pair.
+-   New `scripts/load_dgca_weights.py`: parses the workbook, computes each
+    basket route's share of total basket-route passengers (directional,
+    normalized over the 10 basket routes, sums to 1.0), writes
+    `data/fixtures/dgca_citypair_weights.json` (source, url, route_weights,
+    route_pax). `--refetch` re-downloads from DGCA S3. openpyxl added to
+    `requirements.txt` and installed into `.venv`.
+-   `scripts/seed.py`: `seed_registries` now calls `load_route_weights()` —
+    DGCA fixture when present (validated: all routes, sum ≈ 1.0), placeholder
+    dict as fallback. `WEIGHT_VERSION="WB-2026.09-DGCA"`, `WEIGHT_SOURCE="DGCA
+    DOM city-pair passenger data (July 2026)"`. Lead-time weights unchanged
+    (still booking-distribution placeholder). No index-calculation changes.
+-   New `backend/tests/test_dgca_weights.py` (6 tests).
+
+## Computed weights (July 2026 pax)
+
+| Route | Pax | Weight |
+|---|---|---|
+| DEL-BOM | 258,552 | 0.1655 |
+| BOM-DEL | 245,999 | 0.157465 |
+| DEL-BLR | 192,916 | 0.123486 |
+| BLR-DEL | 189,511 | 0.121306 |
+| BOM-BLR | 171,914 | 0.110043 |
+| HYD-DEL | 120,755 | 0.077296 |
+| CCU-DEL | 112,824 | 0.072219 |
+| DEL-CCU | 108,324 | 0.069338 |
+| BLR-HYD | 81,618 | 0.052244 |
+| MAA-DEL | 79,837 | 0.051104 |
+| Total | 1,562,250 | 1.000001 |
+
+## Tests
+
+`python -m pytest backend/tests/` — 54 passed (6 new).
+
+## Notes
+
+-   DGCA city-pair rows are direction-specific via the two passenger columns;
+    each basket direction gets its own share (asymmetric: DEL-BOM ≠ BOM-DEL).
+-   Weight semantics are versioned: `WB-2026.09-DGCA`; source URL baked into
+    the fixture JSON.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- MoSPI CPI Airfare reference loader (replaces synthetic backtest reference)
+
+**Status:** DONE
+
+## What
+
+-   Deep research confirmed DGCA never published monthly average-fare data
+    (memory.md §9 blocker). Official replacement reference: the MoSPI CPI
+    "Airfare" sub-index (2024=100, All India, Combined, item code 294 /
+    07.3.3.1.2.01), fetched from the eSankhyiki API
+    `api.mospi.gov.in/api/cpi/getCpiData`.
+-   New `collectors/sources/mospi_cpi.py` — reference-series loader (NOT a
+    FlightSource): `fetch_cpi_airfare(years)` (ssl legacy-renegotiation
+    workaround, 3 attempts with backoff), fixture save/load
+    (`data/fixtures/cpi_airfare.json`), and `national_monthly_series()`
+    (APIx daily national series -> monthly means so both sides of the backtest
+    are monthly). Constant `CPI_REFERENCE_NAME`.
+-   New `scripts/load_cpi_backtest.py` CLI (fixture by default, `--live` to
+    refresh from the API then run).
+-   `run_backtest()` in `backend/app/services/index_runner.py` gained an
+    optional `actual_series` parameter (pre-resampled points; defaults to the
+    daily national series — backwards compatible).
+-   `scripts/seed.py` `make_reference_and_backtest`: CPI fixture first, live
+    fetch second, clearly-labeled synthetic fallback only if both fail.
+-   Live fixture saved from the API: 6 months (2025-10 → 2026-07; gaps where
+    eSankhyiki has no 2024-base rows). Verified anchors: 2026-06 = 126.09,
+    2026-05 = 127.62, 2026-07 = 125.46.
+
+## Honesty note
+
+CPI item is monthly All-India consumer index; APIx is a daily national index
+over route × lead-time fares. `compute_metrics` correlation/trend-direction
+report co-movement only — never methodological equivalence. Backtest metrics
+on the current demo replay data (2 overlapping months, n=2): correlation
+-1.0 — statistically meaningless at n=2 and not presented as a result.
+
+## Tests
+
+`python -m pytest backend/tests/test_mospi_cpi.py -q` — 4 passed, 1 skipped
+(live fetch behind `CPI_LIVE=1`). Full suite: 58 passed, 1 skipped.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- Real source adapters: Yatra OTA + Akasa Air tariff sheet
+
+**Status:** DONE
+
+## What
+
+First two genuinely compliant REAL sources (from the completed compliance
+research), built against the same `FlightSource` contract as the sim feed:
+
+-   `collectors/sources/yatra.py` — Yatra OTA. robots.txt is
+    `User-agent: * / Allow: /`, the `/cheap-flights/search/<city1>-to-<city2>-flights`
+    pages are sitemap-published, ToS has no anti-bot clause. Collects the
+    server-rendered 7-day cheapest-fare strip (one quote per day,
+    airline="MULTI", no per-flight prices — they are JS-rendered and never
+    fabricated). Fixture mode by default (`data/fixtures/yatra_*.txt`),
+    live mode behind `YATRA_LIVE=1` (declared UA, 30s timeout, 10s politeness
+    sleep between route fetches; plain httpx — TODO comment to route through
+    EthicalHttpClient when scrape_engine v2 lands, since it was mid-rewrite by
+    another agent and is not present yet).
+    `POLICY_STATUS = "ROBOTS_ALLOWED_SEO"`.
+-   `collectors/sources/akasa_tariff.py` — Akasa Air published fare-sheet PDF
+    (robots.txt: zero Disallow lines; plain HTTP 200 storyblok URL). Parses
+    `pdftotext -layout` output: Minimum row's `Fare_Level_1` = base_fare
+    (the lowest filed tariff — levels 2..15 and Maximum rows are RBD
+    buckets/ceilings, a different statistic, not collected), YQ fuel charge =
+    taxes, advance_days=1 (tariff is advance-agnostic; documented
+    convention), airline "QP", fare_class "FARE_LEVEL_1". "Updated on:" date
+    (1-Sep-26) parsed and surfaced via `health_check`. `fetch_pdf()` live
+    refetch behind `AKASA_LIVE=1`. `load_akasa_tariff(session, day)` ingest
+    helper (JobSpec + ingest_quotes, same pattern as collect_demo.py).
+    `POLICY_STATUS = "PUBLISHED_TARIFF_PDF"`.
+-   Fare-component honesty: both sources publish single all-in figures with no
+    base/tax split, but `quote_payable_fare` returns None unless base+taxes+
+    mandatory_fees are all present — so the all-in figure is carried as
+    `base_fare` with `taxes=0, mandatory_fees=0` (consumer_payable ==
+    total_fare exactly; no component split is invented). Validity,
+    consistency and timestamp quality components all score 1.0; parsed
+    quotes score 0.86-0.91 under QS-v1 and ingest as AVAILABLE.
+
+## PDF structure discovered (Akasa sheet)
+
+48 directional markets (origins Agartala→Calicut only — no DEL/MAA-origin
+rows), each with Minimum and Maximum rows × 15 fare levels, stops and fuel
+charge (YQ, 0 everywhere in this issue). Effective date 1-Sep-26. Page 2 is a
+per-airport fee table (not a tariff grid). Basket coverage: BLR-DEL (2393),
+BLR-BOM (1168 via Mumbai + 1138 via Navi Mumbai — both mapped to BOM),
+BLR-HYD (638). DEL-BOM/BOM-BLR/DEL-CCU/CCU-DEL are NOT covered (no
+Delhi/Kolkata/Mumbai-origin markets).
+
+## Intended seed/demo integration (NOT wired — other agents own seed.py)
+
+In `scripts/seed.py` `seed_registries`, after the sim-source block:
+
+```python
+from collectors.sources.akasa_tariff import POLICY_STATUS as AKASA_POLICY
+from collectors.sources.yatra import POLICY_STATUS as YATRA_POLICY
+session.add(Source(id="akasa-tariff", name="Akasa Air fare sheet (published tariff PDF)",
+    source_type="AIRLINE", adapter_name="akasa-tariff", adapter_version="1.0",
+    policy_status=AKASA_POLICY, robots_status="ALLOWED_NO_DISALLOWS",
+    rate_limit_per_hour=6, active=True, reliability=0.98))
+session.add(Source(id="yatra-ota", name="Yatra (SEO route pages, robots allowed)",
+    source_type="OTA", adapter_name="yatra", adapter_version="1.0",
+    policy_status=YATRA_POLICY, robots_status="ALLOWED",
+    rate_limit_per_hour=12, active=True, reliability=0.90))
+```
+
+then in the demo cycle: `load_akasa_tariff(session, day)` for Akasa, and for
+Yatra per route × day-strip advance bucket:
+`YatraSource().search(FlightSearchQuery(origin, dest, departure_date=day+lead, advance_days=lead))`
+→ `ingest_quotes(...)` with `lead_time=lead` — noting the strip gives leads
+6-13 (DEL-BOM) / 7+ (others), not the frozen 1/7/15/30/45 buckets, so the
+seed integration phase must decide whether to snap to nearest basket lead or
+extend the lead registry.
+
+## Tests
+
+New `backend/tests/test_yatra.py` (10 tests) and
+`backend/tests/test_akasa_tariff.py` (8 tests): day-count 7, expected fares
+(6529/7376/5050 families), Sept-2026 dates, schema validity, advance_days
+consistency, fare arithmetic (total=base+taxes), payable flows through,
+effective date parsed, day-strip regex immune to flight-block date formats.
+Full suite: 80 passed, 1 skipped.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- Lead-time elasticity visual + real-sources compliance doc
+
+**Status:** DONE
+
+## What
+
+-   `frontend/src/pages/LeadTimePage.tsx`: added the PRD §"lead-time
+    elasticity curves" deliverable below the existing fare-vs-lead chart.
+    Deterministic client-side arithmetic (no backend change): per route,
+    `premium_pct(lead) = (median(lead)/median(T+1) - 1) * 100` over the same
+    AVAILABLE-quotes snapshot. New "Lead-Time Elasticity" section: premium
+    curve chart (x: T+1..T+45, y: premium %, one series per route, route
+    selector matching the page's existing pattern, dashed zero reference
+    markLine, top-5-routes default), 3 summary tiles (max premium route,
+    avg deep-lead discount, routes with curve), empty/loading/error states
+    per house pattern, and an explicit footer note that this is descriptive
+    analytics and NOT part of the index calculation.
+-   `frontend/src/pages/SourcesPage.tsx`: source registry now renders
+    policy_status as styled badges (positive token for PUBLISHED_TARIFF_PDF
+    and ROBOTS_ALLOWED_SEO; neutral for DEMO_SCRAPING_COMPLIANT / SIMULATED
+    / SYNTHETIC_DATA), plus an honest legend line per status (e.g.
+    "PUBLISHED_TARIFF_PDF — airline-published filed fares, not transaction
+    prices") and a "Compliance research" link to the new doc. `policy_status`
+    already flowed through the API (`SourceOut`, schemas.py:96) — backend
+    untouched.
+-   `docs/research_sources.md` (NEW): the source-compliance decision matrix
+    from the deep research — 16-source table (IndiGo, Air India, Air India
+    Express, Akasa, SpiceJet, Alliance Air, MMT, Goibibo, Yatra, EaseMyTrip,
+    Cleartrip, Ixigo, Amadeus, Travelpayouts, MoSPI CPI, DGCA) with
+    robots.txt verdict (rules quoted where we have them: Yatra `Allow: /`,
+    Akasa zero disallows, MMT `Disallow: /flight/search*`), ToS verdict,
+    anti-bot stack, decision (BUILT / COMPLIANT-AVAILABLE /
+    RESTRICTED-DOCUMENTED / REJECTED), and usage; the DGCA fare-data finding
+    (route-wise monthly average fares never published — CPI Airfare sub-index
+    is the official anchor, DGCA city-pair data provides weights); and the
+    compliance policy statement (robots+ToS first, detection-never-bypass, no
+    IP rotation, CAPTCHA pause, honest policy_status labeling).
+
+## Files Changed
+
+``` text
+- frontend/src/pages/LeadTimePage.tsx (elasticity section + tiles + note)
+- frontend/src/pages/SourcesPage.tsx (policy badges + legend + doc link)
+- docs/research_sources.md (new)
+- log.md (this entry)
+```
+
+## Tests
+
+``` text
+Command: cd frontend && npx tsc -b && npm run build
+Result: both clean (tsc silent; build ✓ built in 943ms). Backend untouched —
+no backend tests run (policy_status was already exposed).
+```
+
+## Data/Statistical Changes
+
+-   None to the index. Elasticity is descriptive client-side analytics over
+    the fare snapshot; explicitly disclaimed on-page as not part of index
+    calculation.
+
+## Security Changes
+
+-   None (read-only UI; backend not touched).
+
+## Next Steps
+
+-   [ ] Consider deeper route-lead coverage once more real sources land.
+
+
+# 2026-09-09 --- Anomaly detection module (engine + API + Anomalies screen)
+
+**Status:** DONE
+
+## Completed
+
+-   [x] `statistical_engine/anomaly.py` — rule-based, deterministic candidate
+    price-shock detection (ANOMALY-v1). Per (route, lead time): trailing
+    window median vs latest-day median of AVAILABLE non-outlier quotes;
+    flags when |change| >= threshold AND source consensus (>=3 sources or
+    >=60% same-direction, with >=2 sources so 1/1 is never "consensus").
+    Severity SHOCK (>=2x threshold) / ELEVATED / DIP; sold-out share and a
+    §20 evidence dict per record. Docstring states candidate-not-causation
+    honesty and that it is never part of the index calculation.
+-   [x] `GET /api/v1/anomalies` (window_days 7..365, threshold_pct 5..100,
+    optional route_id) returning AnomalyReportOut with model_version, as_of,
+    disclaimer. Read-only Python-side grouping over AVAILABLE/SOLD_OUT
+    non-outlier quotes.
+-   [x] `AnomalyPage.tsx` at `/anomalies` (nav entry, lazy route): §20 card
+    signature (route arrow, ₹ current median, "+X% vs 30-day route median"),
+    severity token styling (critical/warning/signal), expandable WHY?
+    evidence, empty/loading/error states, disclaimer footer.
+-   [x] `useAnomalies` hook + TS types mirroring the API contract.
+
+## Files Changed
+
+``` text
+- statistical_engine/anomaly.py (new)
+- backend/app/schemas.py (AnomalyOut, AnomalyReportOut)
+- backend/app/api.py (GET /api/v1/anomalies)
+- backend/tests/test_anomaly.py (new, 12 tests)
+- frontend/src/api/types.ts, frontend/src/api/hooks.ts (Anomaly types, useAnomalies)
+- frontend/src/pages/AnomalyPage.tsx (new)
+- frontend/src/AppRoutes.tsx, frontend/src/App.tsx (route + nav)
+- log.md (this entry)
+```
+
+## Tests
+
+``` text
+Command: .venv/bin/python -m pytest backend/tests -q
+Result: 113 passed, 1 skipped (was 101 passed, 1 skipped).
+Command: cd frontend && npx tsc -b && npm run build
+Result: both clean.
+```
+
+## Data/Statistical Changes
+
+-   None to the index. Anomaly detection is ML-adjacent read-only analysis;
+    CLAUDE.md invariant honored (deterministic index engine untouched).
+
+## Security Changes
+
+-   Read-only GET with same validation patterns as existing endpoints.
+
+## Next Steps
+
+-   [ ] Surface anomalies on the Overview page once real multi-source data lands.
+
+# 2026-09-09 --- Forecasting Layer: Holt Linear Exponential Smoothing + API + Overview Overlay
+
+## Status
+
+-   [x] Complete
+
+## What Was Done
+
+Auxiliary forecast layer for the national APIx series. Read-only: forecasting
+never participates in the index calculation (CLAUDE.md invariant); every
+surface carries the "Forecast — model extrapolation, not an observed price"
+disclaimer.
+
+- `statistical_engine/forecast.py` (new): `FORECAST-v1` — Holt's linear
+  exponential smoothing (level + trend), deterministic grid search over
+  alpha, beta in {0.1..0.9 step 0.1} minimizing one-step in-sample MSE;
+  14-point holdout RMSE reported alongside in-sample RMSE; refuses < 20
+  points; pure stdlib, no new dependencies.
+- `backend/app/schemas.py`: `ForecastPointOut`, `ForecastOut`.
+- `backend/app/api.py`: `GET /api/v1/forecast?horizon_days=1..30` (validated,
+  404 with a clear message when history is insufficient; series from
+  `national_series`, methodology defaults to latest published).
+- `frontend/src/api/types.ts` / `hooks.ts`: `Forecast` types + `useForecast`.
+- `frontend/src/pages/Overview.tsx`: Index Pulse chart gains a dashed forecast
+  series (continues after the last observed point via a one-point bridge) plus
+  a "7-day forecast" toggle chip (default on) and "Forecast (not observed)"
+  legend/tooltip label.
+- `backend/tests/conftest.py`: test dataset series extended 7 -> 30 index
+  days so the forecast endpoint has >= 20 points (forecast invariant).
+- `backend/tests/test_mospi_cpi.py`: removed a dead `TEST_START, BASE_DAYS,
+  SERIES_DAYS` import that the conftest change would otherwise have broken.
+
+## Tests
+
+``` text
+Command: .venv/bin/python -m pytest backend/tests/test_forecast.py -q
+Result: 6 passed.
+Command: .venv/bin/python -m pytest backend/tests -q
+Result: 119 passed, 1 skipped (was 101/1 at branch point; includes the anomaly
+        suite landed concurrently).
+Command: cd frontend && npx tsc -b
+Result: clean.
+```
+
+## Data/Statistical Changes
+
+-   None to the index. FORECAST-v1 is an auxiliary read-only model; the
+    deterministic index engine is untouched.
+
+## Security Changes
+
+-   Read-only GET; query params validated (horizon 1..30, methodology
+    max_length); 404 paths don't leak internals beyond counts.
+
+## Next Steps
+
+-   [ ] Add prediction-interval band (e.g. ±1.96 x holdout RMSE) if the demo
+        warrants showing uncertainty visually.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- Phase 3 Integration: Full Real-Data + ML-Layer E2E
+
+**Status:** DONE
+
+## Objective
+
+- Wire all new real sources (Yatra, Akasa, Alliance) + CPI backtest + DGCA
+  weights + ML auxiliary layer into one coherent, verified pipeline and demo.
+
+## Completed
+
+- [x] `scripts/collect_demo.py`: demo cycle now runs the full rotation —
+  5 sim sources × basket + Yatra SEO strips (fixture-backed; YATRA_LIVE=1
+  for live) + scrape-portal (robots-gated, participates when the portal is
+  up, policy pauses recorded not bypassed) + Alliance/Akasa tariff PDF
+  ingests per cycle (job-key idempotent).
+- [x] Yatra lead-bucket convention documented: strip quotes carry their true
+  advance_days (6-13); the JobSpec slot is lead_time=7 (nearest basket
+  bucket). FareQuote.advance_days stays honest; outlier grouping unaffected.
+- [x] `load_alliance_tariff` now filters to registry routes (14 non-basket
+  sectors reported as skipped instead of crashing the seed).
+- [x] Fresh seed E2E: 14,250 replay jobs + alliance tariff (9 stored,
+  14 skipped) + DGCA weights (WB-2026.09-DGCA) + CPI backtest (official
+  MoSPI series, n=2 overlap — demo-data limitation, labeled).
+- [x] API E2E: 14 sources with honest policy_status labels;
+  /anomalies (ANOMALY-v1, 0 anomalies on gentle seed data — correct);
+  /forecast (FORECAST-v1, 7 points, alpha 0.9 beta 0.1); /backtests shows
+  the MoSPI CPI reference.
+- [x] Demo-cycle E2E: index moves (99.92 → 95.53 → 97.74); 721-739 quotes
+  per cycle incl. Yatra + tariffs; with sim portal up the scraper path
+  participates (robots allow, CAPTCHA 403s caught as SourcePolicyError).
+- [x] Full verification: 119 passed / 1 skipped; tsc clean; vite build clean.
+
+## Technical Changes
+
+- Bytecode recovery: lost modules were decompiled from `__pycache__` .pyc
+  (pycdc built from source — uncompyle6/decompyle3 don't support 3.10);
+  serve_sim_portal recovered ~90%, scrape_engine rebuilt on the decompiled
+  skeleton (ethical-v2 adds cf-mitigated/Akamai _abck/Reference# detection),
+  alliance_tariff rebuilt from recovered docstring + fresh PDF (Wayback).
+- httpx.ConnectError is not an OSError — demo loop catches
+  (RuntimeError, OSError, httpx.HTTPError) for the down-portal case.
+
+## Files Changed
+
+```text
+- scripts/collect_demo.py (full source rotation + tariff loaders)
+- scripts/seed.py (CPI import fix, ALLIANCE_COLLECTION_DAY, 14-source registry)
+- collectors/sources/alliance_tariff.py (registry-route filter, select import)
+- backend/tests/test_api.py (source count 10 -> 14)
+- data/fixtures/ (akasa_faresheet.pdf, dgca_citypair_jul2026.xlsx + weights
+  json, cpi_airfare.json, yatra_*.txt x3, robots/ evidence x17,
+  alliance_air_tariff_15MAR23.pdf recovered)
+```
+
+## Tests
+
+```text
+Command: .venv/bin/python -m pytest backend/tests -q; npx tsc -b; npm run build;
+         fresh seed; API curl sweep; collect_demo with and without portal
+Result: 119 passed / 1 skipped; tsc + build clean; all endpoints 200;
+        demo cycle stores 721-739 quotes; index visibly moves.
+```
+
+## Security Changes
+
+- None new — read-only surfaces; Yatra live mode still env-gated; portal
+  catch is scoped to the demo loop only.
+
+## Decisions
+
+- Yatra strip advance_days kept honest (6-13) with lead_time=7 job slot —
+  documented convention, honesty over bucket purity.
+- Alliance non-basket sectors skipped-and-counted, not force-ingested.
+
+## Blockers
+
+- None. (CPI backtest overlap is n=2 on demo data — labeled, not blocking;
+  a longer collection history grows the overlap naturally.)
+
+## Next Steps
+
+- [ ] Commit the whole session (large diff: rebuild + real sources + ML layer).
+- [ ] Optionally: prediction-interval band on the forecast chart.
+- [ ] Optionally: Amadeus adapter (free key) as the API-type real source.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- `make.sh --demo`: One-Command Full Experience + DB Retention
+
+**Status:** DONE
+
+## Objective
+
+- Fold portal + collector into the one-command pipeline with 1s cycles and
+  bounded DB growth.
+
+## Completed
+
+- [x] `./make.sh --demo` (Linux) / `make.bat --demo` (Windows): full pipeline
+  (seed → tests → API → dashboard) + sim portal (:8811) + collector loop at
+  1s intervals. YATRA_LIVE=1 enables live Yatra fetching on top.
+- [x] DB retention in `collect_demo.prune_demo_data`: every cycle drops
+  observation tables older than 90 virtual days (window slides with the
+  virtual clock; IndexValues + newest CalculationRuns never touched —
+  immutable published results). Verified equilibrium: rows held ~54-55k
+  while the window advanced; the June replay rows aged out automatically.
+- [x] `--stop` kills all four processes (pidfiles + port sweep); make.bat
+  uses wmic command-line match for portal/collector.
+- [x] Fixed a real bug found in testing: a matched non-fall-through `case`
+  branch made `--demo` exit silently with no output (bash case does NOT
+  fall through to `*`); restructured with ARG normalization into the
+  default branch.
+- [x] E2E verified: index advancing (2026-09-25 → 2026-10-22 in ~3 min),
+  ~1.4s per cycle (1s sleep + ~0.4s cycle), dashboard 200, forecast +
+  anomalies endpoints live, 119 tests green.
+
+## Files Changed
+
+```text
+- make.sh (--demo mode, portal/collector start/stop, PID tracking)
+- make.bat (--demo mode, wmic-based stop)
+- scripts/collect_demo.py (prune_demo_data + per-cycle retention)
+```
+
+## Tests
+
+```text
+Command: ./make.sh --demo (full E2E); .venv/bin/python -m pytest backend/tests -q
+Result: pipeline green, 4 processes up, 1s cycling, DB bounded at ~90 virtual
+        days of observations; 119 passed / 1 skipped.
+```
+
+## Decisions
+
+- Demo retention = 90 virtual days hardcoded (production retention is a
+  policy decision — documented in the function).
+- Prune deletes observations but never IndexValues/CalculationRuns —
+  published results are immutable even in demo mode.
+
+## Next Steps
+
+- [ ] Commit the session.
+- [ ] Teammate runs make.bat --demo on Windows once.

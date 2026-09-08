@@ -6,6 +6,7 @@ REM Usage:
 REM   make.bat              full pipeline (generates replay data if missing, seeds, starts servers)
 REM   make.bat --keep       re-seed without dropping tables
 REM   make.bat --serve      skip pipeline, just start both servers
+REM   make.bat --demo       FULL EXPERIENCE: pipeline + servers + sim portal + 1s collector loop
 REM   make.bat --stop       stop servers started by this script
 REM   make.bat --test       run backend tests only
 REM   make.bat --fresh-data force regeneration of the replay dataset
@@ -71,9 +72,25 @@ start /b "" cmd /c "pushd frontend && call npm run dev -- --port %UI_PORT% > ..\
 call :wait_ui
 if errorlevel 1 goto :fail
 
+if "%~1"=="--demo" goto :demo
+
 echo [make] pipeline complete
 echo [make] dashboard: http://localhost:%UI_PORT%   API: http://127.0.0.1:%API_PORT%/health
 echo [make] logs in %RUN_DIR%\api.log and %RUN_DIR%\ui.log - stop with make.bat --stop
+exit /b 0
+
+:demo
+echo [make] starting sim fare portal on :8811 ^(robots.txt-gated scrape target^)
+start /b "" cmd /c ""%PY%" scripts\serve_sim_portal.py > "%RUN_DIR%\portal.log" 2>&1"
+timeout /t 2 /nobreak >nul
+
+echo [make] starting collector loop: fresh collection every 1s ^(DB auto-pruned to 90 virtual days^)
+start /b "" cmd /c ""%PY%" scripts\collect_demo.py --interval 1 > "%RUN_DIR%\collector.log" 2>&1"
+timeout /t 2 /nobreak >nul
+
+echo [make] FULL DEMO MODE running
+echo [make] dashboard: http://localhost:%UI_PORT%   API: http://127.0.0.1:%API_PORT%/health
+echo [make] logs in %RUN_DIR%\{api,ui,portal,collector}.log - stop with make.bat --stop
 exit /b 0
 
 :stop
@@ -91,6 +108,9 @@ if exist "%RUN_DIR%\ui.pid" (
     for /f %%p in (%RUN_DIR%\ui.pid) do taskkill /f /pid %%p >nul 2>&1
     del "%RUN_DIR%\ui.pid"
 )
+REM also stop portal + collector by command line match so --stop works across shell restarts
+wmic process where "CommandLine like '%%serve_sim_portal%%'" delete >nul 2>&1
+wmic process where "CommandLine like '%%collect_demo%%'" delete >nul 2>&1
 REM also stop anything by window title so --stop works across shell restarts
 taskkill /fi "WINDOWTITLE eq AirStat API*" /f >nul 2>&1
 taskkill /fi "WINDOWTITLE eq AirStat UI*" /f >nul 2>&1

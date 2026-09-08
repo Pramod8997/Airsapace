@@ -25,8 +25,12 @@ from backend.app.models import (
 )
 from backend.app.schemas import (
     AirlineOut,
+    AnomalyOut,
+    AnomalyReportOut,
     BacktestOut,
     FareOut,
+    ForecastOut,
+    ForecastPointOut,
     IndexHistoryOut,
     IndexLatestOut,
     IndexPointOut,
@@ -37,7 +41,7 @@ from backend.app.schemas import (
     SourceHealthOut,
     SourceOut,
 )
-from backend.app.services.index_runner import aggregate_frequency
+from backend.app.services.index_runner import aggregate_frequency, national_series
 
 router = APIRouter(prefix="/api/v1", tags=["apix"])
 
@@ -299,6 +303,55 @@ def quality(window_days: int = Query(30, ge=1, le=365), db: Session = DbDep):
     )
 
 
+# ---------------------------------------------------------------- anomalies
+
+
+@router.get("/anomalies", response_model=AnomalyReportOut)
+def anomalies(
+    window_days: int = Query(30, ge=7, le=365),
+    threshold_pct: float = Query(25, ge=5, le=100),
+    route_id: str | None = Query(None, pattern=r"^[A-Z]{3}-[A-Z]{3}$"),
+    db: Session = DbDep,
+):
+    """Candidate price-shock detection (UI_UX_DESIGN.md §20).
+
+    Rule-based and read-only; ML-adjacent, never part of the index calculation.
+    """
+    from statistical_engine.anomaly import ANOMALY_MODEL_VERSION, detect_anomalies
+
+    if route_id and db.get(Route, route_id) is None:
+        raise HTTPException(404, f"unknown route {route_id}")
+
+    latest = db.scalar(select(func.max(FareQuote.collection_date)))
+    q = select(FareQuote).where(
+        FareQuote.availability.in_(("AVAILABLE", "SOLD_OUT")),
+        FareQuote.outlier_flag.is_(False),
+    )
+    if route_id:
+        q = q.where(FareQuote.route_id == route_id)
+    rows = list(db.scalars(q))
+    records = detect_anomalies(rows, window_days=window_days, threshold_pct=threshold_pct)
+    return AnomalyReportOut(
+        anomalies=[
+            AnomalyOut(
+                route_id=r.route_id, origin=r.origin, destination=r.destination,
+                lead_time=r.lead_time, current_date=r.current_date,
+                current_median=r.current_median, window_median=r.window_median,
+                change_pct=r.change_pct, severity=r.severity,
+                source_confirmations=r.source_confirmations, sources_seen=r.sources_seen,
+                sold_out_share=r.sold_out_share, explanation=r.explanation,
+            )
+            for r in records
+        ],
+        model_version=ANOMALY_MODEL_VERSION,
+        as_of=latest,
+        disclaimer=(
+            "Candidate shocks with supporting evidence only — causation is not proven. "
+            "Rule-based detection, not part of the index calculation."
+        ),
+    )
+
+
 # ---------------------------------------------------------------- methodology
 
 
@@ -349,3 +402,48 @@ def backtests(db: Session = DbDep):
         reference_series=b.reference_series, metrics=b.metrics, created_at=b.created_at,
     ) for b in runs]
 
+
+
+# ---------------------------------------------------------------- forecast
+
+
+@router.get("/forecast", response_model=ForecastOut)
+def forecast(
+    horizon_days: int = Query(7, ge=1, le=30),
+    methodology_version: str | None = Query(None, max_length=40),
+    db: Session = DbDep,
+):
+    """Holt's linear exponential smoothing forecast of the national APIx series.
+
+    Auxiliary read-only layer — forecasts are model extrapolations, never part
+    of the index calculation (CLAUDE.md invariant).
+    """
+    from statistical_engine.forecast import FORECAST_DISCLAIMER, holt_forecast
+
+    if methodology_version is None:
+        methodology_version = _latest_methodology(db).version
+    elif db.get(MethodologyVersion, methodology_version) is None:
+        raise HTTPException(404, f"unknown methodology {methodology_version}")
+
+    points = national_series(db, methodology_version)
+    if len(points) < 20:
+        raise HTTPException(
+            404,
+            f"not enough index history for a forecast — need 20 points, "
+            f"have {len(points)} (methodology {methodology_version})",
+        )
+    result = holt_forecast([(p.date, p.value) for p in points], horizon_days=horizon_days)
+    history = points[-60:]
+    return ForecastOut(
+        model_version=result.model_version,
+        horizon_days=result.horizon_days,
+        methodology_version=methodology_version,
+        history=[IndexPointOut(index_date=p.date, value=p.value) for p in history],
+        fitted=[ForecastPointOut(date=d, value=v) for d, v in result.fitted[-60:]],
+        forecast=[ForecastPointOut(date=d, value=v) for d, v in result.forecast],
+        params={"alpha": result.params[0], "beta": result.params[1]},
+        in_sample_rmse=result.in_sample_rmse,
+        holdout_rmse=result.holdout_rmse,
+        method=result.method,
+        disclaimer=FORECAST_DISCLAIMER,
+    )

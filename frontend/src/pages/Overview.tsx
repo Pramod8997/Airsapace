@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { Chart, chartTheme } from '../components/Chart'
 import { Card, ChangeBadge, ConfidenceBar, ErrorState, Loading, MetricTile } from '../components/ui'
-import { useLatest, useMethodology, useQuality, useRoutes, useRouteMovers, useHistory } from '../api/hooks'
+import { useForecast, useLatest, useMethodology, useQuality, useRoutes, useRouteMovers, useHistory } from '../api/hooks'
 import { fmtInt, fmtNum } from '../lib/format'
-import type { IndexHistory } from '../api/types'
+import type { Forecast, IndexHistory } from '../api/types'
 
 /** Overview: hero + 30-day index pulse + route pressure + data confidence (UI_UX_DESIGN.md §8). */
 export default function Overview() {
@@ -14,6 +15,9 @@ export default function Overview() {
   const methodology = useMethodology()
   // national trend, weekly for a calm 30+ day pulse
   const history = useHistory({ frequency: 'WEEKLY' })
+  // auxiliary forecast layer — never part of the index calculation
+  const forecast = useForecast(7)
+  const [showForecast, setShowForecast] = useState(true)
   // all hooks before any early return — conditional hook calls blank the app
   const topMovers = useRouteMovers(5, routes.data ?? []).data ?? []
 
@@ -44,10 +48,18 @@ export default function Overview() {
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card title="Index Pulse · 30-day trend" className="md:col-span-2">
+        <Card title="Index Pulse · 30-day trend" className="md:col-span-2" right={
+          <button
+            aria-pressed={showForecast}
+            className={`rounded-full border px-3 py-1 text-xs ${showForecast ? 'border-signal/40 bg-signal/10 text-signal' : 'border-grid text-muted'}`}
+            onClick={() => setShowForecast((v) => !v)}
+            title="Model extrapolation — not an observed price"
+          >7-day forecast</button>
+        }>
           {history.isError ? <ErrorState error={history.error} /> :
            history.isPending ? <Loading /> :
-           history.data.points.length === 0 ? <EmptyTrend /> : <TrendChart data={history.data} />}
+           history.data.points.length === 0 ? <EmptyTrend /> :
+           <TrendChart data={history.data} forecast={showForecast ? forecast.data : undefined} />}
         </Card>
         <div className="space-y-4">
           <MetricTile label="Data Confidence" value={completeness != null ? `${completeness.toFixed(1)}%` : '—'}
@@ -92,26 +104,47 @@ function EmptyTrend() {
   )
 }
 
-function TrendChart({ data }: { data: IndexHistory }) {
+function TrendChart({ data, forecast }: { data: IndexHistory; forecast?: Forecast }) {
   const pts = data.points
+  const fc = forecast?.forecast ?? []
+  const lastDate = pts[pts.length - 1]?.index_date
+  // bridge: the last observed point repeated as the first forecast point so the
+  // dashed segment connects to the observed line instead of floating
+  const bridge = lastDate ? [{ date: lastDate, value: pts[pts.length - 1]?.value }] : []
+  const fcPoints = [...bridge, ...fc]
+  const fcDates = fcPoints.map((p) => p.date)
   const option = {
     grid: { left: 48, right: 16, top: 16, bottom: 28 },
-    xAxis: { type: 'category' as const, data: pts.map((p) => p.index_date), ...chartTheme.axis },
+    xAxis: { type: 'category' as const, data: [...pts.map((p) => p.index_date), ...fcDates], ...chartTheme.axis },
     yAxis: { type: 'value' as const, scale: true, ...chartTheme.axis },
     tooltip: { trigger: 'axis' as const },
-    series: [{
-      type: 'line' as const,
-      data: pts.map((p) => p.value),
-      showSymbol: false,
-      smooth: false, // honest lines, no smoothing
-      lineStyle: { color: chartTheme.signal, width: 2 },
-      areaStyle: { color: 'rgba(31,95,214,0.06)' },
-    }],
+    series: [
+      {
+        name: 'APIx (observed)',
+        type: 'line' as const,
+        data: [...pts.map((p) => p.value), ...fcDates.map(() => null)],
+        showSymbol: false,
+        smooth: false, // honest lines, no smoothing
+        connect: false, // don't bridge the observed/forecast gap with a solid line
+        lineStyle: { color: chartTheme.signal, width: 2 },
+        areaStyle: { color: 'rgba(31,95,214,0.06)' },
+      },
+      {
+        name: 'Forecast (not observed)',
+        type: 'line' as const,
+        data: [...pts.map(() => null), ...fcPoints.map((p) => p.value)],
+        showSymbol: false,
+        smooth: false,
+        connect: false,
+        lineStyle: { color: chartTheme.warning, width: 2, type: 'dashed' as const },
+      },
+    ],
   }
   return (
     <Chart
       option={option}
-      summary={`APIx weekly series from ${pts[0]?.index_date} to ${pts[pts.length - 1]?.index_date}, latest value ${pts[pts.length - 1]?.value}`}
+      summary={`APIx weekly series from ${pts[0]?.index_date} to ${lastDate}, latest value ${pts[pts.length - 1]?.value}` +
+        (fc.length ? `, followed by a ${fc.length}-point dashed model forecast (not observed prices)` : '')}
     />
   )
 }

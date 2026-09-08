@@ -157,8 +157,12 @@ def run_backtest(
     period_start: date,
     period_end: date,
     methodology_version: str | None = None,
+    actual_series: list[SeriesPoint] | None = None,
 ) -> BacktestRun:
     """Compare the national combined APIx against a reference series.
+
+    actual_series: pre-resampled APIx points (e.g. monthly means) to compare
+    against a monthly reference; defaults to the daily national series.
 
     NOTE (statistical honesty): correlation validates co-movement only; it does
     not establish methodological equivalence with the reference producer.
@@ -169,8 +173,8 @@ def run_backtest(
             .where(MethodologyVersion.published)
             .order_by(MethodologyVersion.created_at.desc())
         )
-    actual = [p for p in national_series(session, methodology_version)
-              if period_start <= p.date <= period_end]
+    actual = actual_series or national_series(session, methodology_version)
+    actual = [p for p in actual if period_start <= p.date <= period_end]
     metrics = compute_metrics(actual, reference)
 
     run = CalculationRun(

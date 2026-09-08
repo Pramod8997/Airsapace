@@ -10,6 +10,7 @@ const pages = {
   FareDecompositionPage: lazy(() => import('./pages/FareDecompositionPage')),
   SourcesPage: lazy(() => import('./pages/SourcesPage')),
   QualityPage: lazy(() => import('./pages/QualityPage')),
+  AnomalyPage: lazy(() => import('./pages/AnomalyPage')),
   BacktestingPage: lazy(() => import('./pages/BacktestingPage')),
   MethodologyPage: lazy(() => import('./pages/MethodologyPage')),
 }
@@ -25,6 +26,7 @@ export function AppRoutes() {
         <Route path="/fare-decomposition" element={<pages.FareDecompositionPage />} />
         <Route path="/sources" element={<pages.SourcesPage />} />
         <Route path="/quality" element={<pages.QualityPage />} />
+        <Route path="/anomalies" element={<pages.AnomalyPage />} />
         <Route path="/backtesting" element={<pages.BacktestingPage />} />
         <Route path="/methodology" element={<pages.MethodologyPage />} />
         <Route path="*" element={<Loading label="Not found" />} />
