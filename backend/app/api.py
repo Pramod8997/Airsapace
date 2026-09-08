@@ -348,3 +348,4 @@ def backtests(db: Session = DbDep):
         methodology_version=b.methodology_version, basket_version=b.basket_version,
         reference_series=b.reference_series, metrics=b.metrics, created_at=b.created_at,
     ) for b in runs]
+

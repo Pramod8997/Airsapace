@@ -479,6 +479,69 @@ Result: 42 passed
 
 ------------------------------------------------------------------------
 
+# 2026-09-08 --- Compliance Audit vs PS-26056 + UI Polish (radar map fix)
+
+**Status:** DONE
+
+### Objective
+
+-   Audit the build against the PRD (FR-01..FR-20, §15) and Problem Statement 26056; apply light UI polish that keeps the frozen Airspace Observatory identity; fix the invisible route-map labels.
+
+### Work Completed
+
+-   [x] Full read-only compliance audit (backend/pipeline/engine + frontend/dashboard). Result summary: statistical core, canonical model, deterministic Laspeyres index, lead-time indices, 10 API endpoints and 10 dashboard screens are DONE; primary gaps are real scraping engine (synthetic only), backtest reference (circular synthetic, not DGCA), auth/RBAC + admin writes (FR-20), runtime source resilience (FR-19), scheduler (FR-05), UI export (FR-17), and the Anomaly/Shock screen.
+-   [x] **Fixed Route Observatory map bug:** airport nodes/labels were hardcoded near-white (`#f7f8fa`) over a *transparent* (white) card → invisible. Painted the intended dark radar canvas (`--color-radar #0a0f1a`) with a radial glow + refined navy graticule; labels now light-on-dark (`#e7ecf5`) with a `paint-order` halo for legibility over arcs. Verified by rasterizing the exact SVG.
+-   [x] UI polish (identity unchanged): header Index-Pulse "radar ping" shown **only** when `data_mode === LIVE` (no ping for DEMO/REPLAY — statistical honesty); active nav-rail accent bar; subtle card/tile elevation (`--shadow-card`); thin instrument-style scrollbars; selection tint; new derived tokens `--color-surface-2`, `--color-signal-strong`.
+
+### Technical Changes
+
+-   `index.css`: added `surface-2`/`signal-strong` theme tokens, `--shadow-card`/`--shadow-pop`, `.obs-card`/`.obs-hover`, `.pulse-dot` + `@keyframes pulse-ring`, `::selection`, thin scrollbars. Reduced-motion block still disables the pulse.
+-   `App.tsx`: LIVE-only pulse dot (inline `--dot` CSS var, `CSSProperties` cast); active-nav left accent bar; subtle sticky-header shadow.
+-   `components/ui.tsx`: `Card` + `MetricTile` gain `.obs-card` elevation.
+-   `pages/RoutesPage.tsx`: `RouteMap` rewritten to paint the dark canvas (defs radial gradient, dark rect, refined graticule, glowing nodes, halo labels, lighter title).
+
+### Files Changed
+
+``` text
+- frontend/src/index.css
+- frontend/src/App.tsx
+- frontend/src/components/ui.tsx
+- frontend/src/pages/RoutesPage.tsx
+- log.md (this entry)
+```
+
+### Tests
+
+``` text
+Command: npx tsc -p tsconfig.app.json --noEmit   → exit 0 (clean typecheck)
+Not run here: vite production build (Linux sandbox has only the win32 rolldown native binding — run on the Windows host); backend pytest (committed .venv is Windows/py3.14 + pip network-blocked). Engine math independently re-derived 12/12 in the audit.
+```
+
+### UI/UX Changes
+
+-   Polish only; no change to the frozen Airspace Observatory palette/typography/layout. The route map now renders as the intended dark radar inset (previously blank-looking with invisible labels).
+
+### Decisions
+
+-   Map fix approach = paint the dark radar canvas (the `--color-radar*` tokens already existed and every map element was authored for a dark background) rather than recolour the map to light. No frozen decision changed.
+
+### Blockers
+
+-   None new.
+
+### Next Steps (ranked, from audit)
+
+-   [ ] Implement at least one real source adapter behind `FlightSource` (Playwright/Scrapy) — the PS-core "automated web scraping" gap.
+-   [ ] Replace the circular synthetic backtest reference with a real DGCA monthly average-fare series; label "(not DGCA)" wherever metrics show until then.
+-   [ ] FR-20: JWT auth + RBAC, write/admin endpoints, and actually write `AuditLog`.
+-   [ ] FR-19 runtime resilience (rate-limit, backoff, CAPTCHA detect, pause, fallback); FR-05 APScheduler; FR-17 UI export (CSV/JSON/XLSX); Anomaly/Price-Shock screen.
+
+### Notes
+
+-   Audit was read-only; only the four frontend files above were modified. No backend or statistical code touched.
+
+------------------------------------------------------------------------
+
 # Development Entry Template
 
 \## YYYY-MM-DD ---

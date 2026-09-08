@@ -114,61 +114,195 @@ function useRouteSeries(routes: { id: string }[]) {
   })
 }
 
+import L from 'leaflet'
+import { useEffect, useRef } from 'react'
+
 function RouteMap({ routes, series, selected, onSelect }: {
   routes: Array<{ id: string; origin: string; destination: string }>
   series: Map<string, RouteStat>
   selected: string
   onSelect: (id: string) => void
 }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const tileLayerRef = useRef<L.TileLayer | null>(null)
+  const routesLayerRef = useRef<L.LayerGroup | null>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return
+
+    // Center map over India: lat 21.5, lng 78.5, zoom level 5
+    const map = L.map(containerRef.current, {
+      center: [21.5, 78.5],
+      zoom: 5,
+      minZoom: 4,
+      maxZoom: 10,
+      zoomControl: true,
+      scrollWheelZoom: true,
+    })
+    mapRef.current = map
+
+    const getTileUrl = () => {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')
+      return isDark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+    }
+
+    const tileLayer = L.tileLayer(getTileUrl(), {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map)
+
+    tileLayerRef.current = tileLayer
+    const routesGroup = L.layerGroup().addTo(map)
+    routesLayerRef.current = routesGroup
+
+    const handleThemeChange = () => {
+      if (tileLayerRef.current) {
+        tileLayerRef.current.setUrl(getTileUrl())
+      }
+    }
+    window.addEventListener('themechange', handleThemeChange)
+
+    return () => {
+      window.removeEventListener('themechange', handleThemeChange)
+      map.remove()
+      mapRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const routesGroup = routesLayerRef.current
+    if (!map || !routesGroup) return
+
+    routesGroup.clearLayers()
+
+    // Helper: Quadratic Bezier curve points in lat/lng space for realistic curved flight routes
+    const getArcPoints = (
+      lat1: number, lng1: number,
+      lat2: number, lng2: number,
+      numPoints = 35,
+      lift = 0.15
+    ): [number, number][] => {
+      const midLat = (lat1 + lat2) / 2
+      const midLng = (lng1 + lng2) / 2
+      const dLat = lat2 - lat1
+      const dLng = lng2 - lng1
+
+      const ctrlLat = midLat - dLng * lift
+      const ctrlLng = midLng + dLat * lift
+
+      const pts: [number, number][] = []
+      for (let i = 0; i <= numPoints; i++) {
+        const t = i / numPoints
+        const lat = (1 - t) * (1 - t) * lat1 + 2 * (1 - t) * t * ctrlLat + t * t * lat2
+        const lng = (1 - t) * (1 - t) * lng1 + 2 * (1 - t) * t * ctrlLng + t * t * lng2
+        pts.push([lat, lng])
+      }
+      return pts
+    }
+
+    // 1. Draw Flight Routes
+    routes.forEach((r) => {
+      const a = AIRPORTS[r.origin]
+      const b = AIRPORTS[r.destination]
+      if (!a || !b) return
+
+      const stat = series.get(r.id)
+      const up = (stat?.change7d ?? 0) > 0.05
+      const down = (stat?.change7d ?? 0) < -0.05
+      const color = up ? '#2ecc71' : down ? '#e74c3c' : '#3b82f6'
+      const isSel = selected === r.id
+
+      const arcPoints = getArcPoints(a.lat, a.lng, b.lat, b.lng)
+
+      const polyline = L.polyline(arcPoints, {
+        color: isSel ? '#ffffff' : color,
+        weight: isSel ? 4.5 : 2.5,
+        opacity: selected && !isSel ? 0.3 : 0.9,
+      })
+
+      const latestVal = stat ? fmtNum(stat.latest, 1) : '—'
+      const chgVal = stat?.change7d != null ? `${stat.change7d > 0 ? '+' : ''}${stat.change7d.toFixed(1)}%` : '—'
+
+      polyline.bindTooltip(`
+        <div style="font-family: Inter, sans-serif; font-size: 12px; padding: 2px 4px;">
+          <div style="font-weight: 600;">${r.id} · ${a.city} → ${b.city}</div>
+          <div>Index: <strong>${latestVal}</strong> · 7D Change: <strong>${chgVal}</strong></div>
+        </div>
+      `, { sticky: true })
+
+      polyline.on('click', () => {
+        onSelect(r.id)
+      })
+
+      routesGroup.addLayer(polyline)
+    })
+
+    // 2. Draw Airport Markers
+    Object.values(AIRPORTS).forEach((ap) => {
+      const icon = L.divIcon({
+        className: 'airport-leaflet-marker',
+        html: `
+          <div style="
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            pointer-events: auto;
+          ">
+            <div style="
+              width: 12px;
+              height: 12px;
+              border-radius: 9999px;
+              background: #3b82f6;
+              border: 2px solid #ffffff;
+              box-shadow: 0 0 8px rgba(59, 130, 246, 0.8);
+            "></div>
+            <span style="
+              font-family: Inter, sans-serif;
+              font-size: 11px;
+              font-weight: 700;
+              letter-spacing: 0.05em;
+              color: var(--color-ink);
+              text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+              background: rgba(16, 20, 28, 0.6);
+              padding: 1px 5px;
+              border-radius: 4px;
+              backdrop-filter: blur(4px);
+            ">${ap.iata}</span>
+          </div>
+        `,
+        iconSize: [60, 20],
+        iconAnchor: [6, 10],
+      })
+
+      const marker = L.marker([ap.lat, ap.lng], { icon })
+      marker.bindTooltip(`
+        <div style="font-family: Inter, sans-serif; font-size: 12px;">
+          <strong>${ap.name} (${ap.iata})</strong><br/>
+          ${ap.city}, India
+        </div>
+      `)
+      routesGroup.addLayer(marker)
+    })
+  }, [routes, series, selected, onSelect])
+
   return (
-    <div className="overflow-x-auto">
-      <svg viewBox="0 0 1000 1150" role="img" aria-label="Map of India with basket routes; arcs colored by 7-day index change" className="mx-auto h-[520px] max-w-full">
-        {/* faint graticule to suggest an observatory chart without a fake map outline */}
-        {Array.from({ length: 9 }, (_, i) => (
-          <line key={`h${i}`} x1={40} x2={960} y1={70 + i * 110} y2={70 + i * 110} stroke="#1b2740" strokeWidth={1} />
-        ))}
-        {Array.from({ length: 9 }, (_, i) => (
-          <line key={`v${i}`} y1={50} y2={1100} x1={50 + i * 110} x2={50 + i * 110} stroke="#1b2740" strokeWidth={1} />
-        ))}
-
-        {routes.map((r) => {
-          const a = AIRPORTS[r.origin], b = AIRPORTS[r.destination]
-          if (!a || !b) return null
-          const stat = series.get(r.id)
-          const up = (stat?.change7d ?? 0) > 0.05
-          const down = (stat?.change7d ?? 0) < -0.05
-          const stroke = up ? '#2ecc71' : down ? '#e74c3c' : '#3b82f6'
-          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
-          const dx = b.x - a.x, dy = b.y - a.y
-          // perpendicular lift for the arc
-          const lift = 0.18
-          const cx = mx - dy * lift, cy = my + dx * lift
-          const isSel = selected === r.id
-          return (
-            <g key={r.id} className="cursor-pointer" onClick={() => onSelect(r.id)} tabIndex={0}
-               role="button" aria-label={`${r.id} index ${stat ? fmtNum(stat.latest, 1) : 'n/a'} 7 day ${stat?.change7d?.toFixed(1) ?? 'n/a'}%`}
-               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.id) } }}>
-              <path d={`M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`} fill="none"
-                    stroke={isSel ? '#fff' : stroke} strokeWidth={isSel ? 3 : 1.6} opacity={selected && !isSel ? 0.25 : 0.9}>
-                <title>{`${r.id} · index ${stat ? fmtNum(stat.latest, 1) : '—'} · 7D ${stat?.change7d != null ? stat.change7d.toFixed(1) + '%' : '—'}`}</title>
-              </path>
-            </g>
-          )
-        })}
-
-        {Object.values(AIRPORTS).map((ap) => (
-          <g key={ap.iata}>
-            <circle cx={ap.x} cy={ap.y} r={6} fill="#f7f8fa" stroke="#3b82f6" strokeWidth={2} />
-            <text x={ap.x + 10} y={ap.y + 4} fill="#f7f8fa" fontSize={20} fontWeight={600}>{ap.iata}</text>
-          </g>
-        ))}
-        <text x={50} y={40} fill="#5c6674" fontSize={16} letterSpacing={3}>ROUTE OBSERVATORY · INDIA</text>
-      </svg>
-      <div className="mt-2 flex gap-4 text-[11px] text-muted">
-        <span><span className="mr-1 inline-block h-2 w-4 rounded-sm bg-[#2ecc71]" />rising 7D</span>
-        <span><span className="mr-1 inline-block h-2 w-4 rounded-sm bg-[#e74c3c]" />falling 7D</span>
-        <span><span className="mr-1 inline-block h-2 w-4 rounded-sm bg-[#3b82f6]" />flat</span>
-        <span>select a route arc or row for the evidence drawer</span>
+    <div>
+      <div
+        ref={containerRef}
+        className="h-[530px] w-full rounded-lg border border-grid overflow-hidden shadow-inner z-0"
+      />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-4 text-[11px] text-muted">
+        <div className="flex gap-4">
+          <span><span className="mr-1.5 inline-block h-2.5 w-4 rounded-sm bg-[#2ecc71]" />rising 7D</span>
+          <span><span className="mr-1.5 inline-block h-2.5 w-4 rounded-sm bg-[#e74c3c]" />falling 7D</span>
+          <span><span className="mr-1.5 inline-block h-2.5 w-4 rounded-sm bg-[#3b82f6]" />flat</span>
+        </div>
+        <span>Click any flight route arc or airport marker for the evidence drawer</span>
       </div>
     </div>
   )

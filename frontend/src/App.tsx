@@ -1,7 +1,9 @@
 import { Link, NavLink } from 'react-router-dom'
+import type { CSSProperties } from 'react'
 import { AppRoutes } from './AppRoutes'
 import { useLatest, useQuality } from './api/hooks'
 import { CommandPalette } from './components/CommandPalette'
+import { ThemeToggle } from './components/ThemeToggle'
 import { fmtNum, fmtPct } from './lib/format'
 
 const NAV = [
@@ -16,7 +18,7 @@ const NAV = [
   { to: '/methodology', label: 'Method' },
 ]
 
-/** Header Index Pulse + live-mode badge (UI_UX_DESIGN.md §5). */
+/** Header Index Pulse + live-mode badge + theme toggle (UI_UX_DESIGN.md §5). */
 function HeaderPulse() {
   const { data: latest, isError } = useLatest()
   const index = latest ? fmtNum(latest.index, 2) : isError ? 'API offline' : '…'
@@ -37,13 +39,22 @@ function HeaderPulse() {
         )}
       </div>
       <div className="hidden items-center gap-2 text-xs text-muted md:flex">
-        <span
-          aria-label={`data mode ${mode}`}
-          className={`inline-block h-2 w-2 rounded-full ${mode === 'LIVE' ? 'bg-positive' : mode === 'REPLAY' ? 'bg-warning' : 'bg-muted'}`}
-        />
+        {(() => {
+          const dotColor = mode === 'LIVE' ? '#1d7a4f' : mode === 'REPLAY' ? '#b8860b' : '#5c6674'
+          return (
+            <span
+              aria-label={`data mode ${mode}`}
+              className={`inline-block h-2 w-2 rounded-full ${mode === 'LIVE' ? 'pulse-dot' : ''}`}
+              style={{ backgroundColor: dotColor, '--dot': dotColor } as CSSProperties}
+            />
+          )
+        })()}
         <span className="tracking-wider uppercase">{mode === 'REPLAY' ? 'Replay data' : mode === 'DEMO' ? 'Demo data' : mode} · {latest ? latest.index_date : '—'}</span>
       </div>
-      <div className="ml-auto hidden text-[10px] text-muted lg:block">press <kbd className="rounded border border-grid px-1">/</kbd> to search</div>
+      <div className="ml-auto flex items-center gap-3">
+        <ThemeToggle />
+        <div className="hidden text-[10px] text-muted lg:block">press <kbd className="rounded border border-grid px-1">/</kbd> to search</div>
+      </div>
     </div>
   )
 }
@@ -70,7 +81,7 @@ export default function App() {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:bg-surface focus:px-2 focus:py-1 focus:text-sm">
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 border-b border-grid bg-surface/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-grid bg-surface/95 shadow-[var(--shadow-card)] backdrop-blur">
         <HeaderPulse />
       </header>
       <div className="flex flex-1">
@@ -82,7 +93,9 @@ export default function App() {
                   to={n.to}
                   end={n.end}
                   className={({ isActive }) =>
-                    `block rounded px-3 py-1.5 text-sm ${isActive ? 'bg-signal/10 font-medium text-signal' : 'text-muted hover:bg-grid/50 hover:text-ink'}`
+                    `relative block rounded px-3 py-1.5 text-sm transition-colors ${isActive
+                      ? 'bg-signal/10 font-medium text-signal before:absolute before:top-1.5 before:bottom-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-signal'
+                      : 'text-muted hover:bg-grid/50 hover:text-ink'}`
                   }
                 >
                   {n.label}

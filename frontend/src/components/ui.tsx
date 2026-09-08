@@ -5,7 +5,7 @@ export function Card({ title, right, children, className = '' }: {
   title?: string; right?: ReactNode; children: ReactNode; className?: string
 }) {
   return (
-    <section className={`rounded-lg border border-grid bg-surface ${className}`}>
+    <section className={`obs-card rounded-lg border border-grid bg-surface ${className}`}>
       {title && (
         <header className="flex items-baseline justify-between border-b border-grid px-4 py-2.5">
           <h2 className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">{title}</h2>
@@ -21,7 +21,7 @@ export function MetricTile({ label, value, sub, valueClass = '' }: {
   label: string; value: ReactNode; sub?: ReactNode; valueClass?: string
 }) {
   return (
-    <div className="rounded-lg border border-grid bg-surface px-4 py-3">
+    <div className="obs-card rounded-lg border border-grid bg-surface px-4 py-3">
       <div className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">{label}</div>
       <div className={`tnum mt-1 text-2xl font-semibold ${valueClass}`}>{value}</div>
       {sub && <div className="mt-1 text-sm text-muted">{sub}</div>}

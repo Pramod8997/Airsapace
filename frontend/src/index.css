@@ -1,34 +1,114 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
-/* Airspace Observatory tokens (UI_UX_DESIGN.md §6) */
-@theme {
+/* Airspace Observatory theme tokens (Light & Dark mode support) */
+:root {
+  color-scheme: light;
   --color-ink: #10141c;
   --color-paper: #f7f8fa;
   --color-surface: #ffffff;
+  --color-surface-2: #eef1f7;
   --color-muted: #5c6674;
   --color-grid: #e3e7ee;
   --color-signal: #1f5fd6;
+  --color-signal-strong: #17408f;
   --color-warning: #b8860b;
   --color-critical: #c0392b;
   --color-positive: #1d7a4f;
   --font-sans: "Inter", system-ui, sans-serif;
-}
 
-/* observatory dark canvas for the route map */
-@theme {
   --color-radar: #0a0f1a;
   --color-radar-line: #1b2740;
   --color-radar-glow: #2d4a8a;
+
+  --shadow-card: 0 1px 2px rgb(16 20 28 / 0.04), 0 1px 1px rgb(16 20 28 / 0.03);
+  --shadow-pop: 0 12px 34px rgb(16 20 28 / 0.14), 0 2px 8px rgb(16 20 28 / 0.08);
 }
 
-html { color-scheme: light; }
+:root[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+  --color-ink: #f1f5f9;
+  --color-paper: #090d16;
+  --color-surface: #111726;
+  --color-surface-2: #1a2336;
+  --color-muted: #8e9ab0;
+  --color-grid: #1e293b;
+  --color-signal: #3b82f6;
+  --color-signal-strong: #60a5fa;
+  --color-warning: #f59e0b;
+  --color-critical: #ef4444;
+  --color-positive: #10b981;
+
+  --color-radar: #050811;
+  --color-radar-line: #172033;
+  --color-radar-glow: #3b82f6;
+
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.4), 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 12px 34px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+@theme {
+  --color-ink: var(--color-ink);
+  --color-paper: var(--color-paper);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-muted: var(--color-muted);
+  --color-grid: var(--color-grid);
+  --color-signal: var(--color-signal);
+  --color-signal-strong: var(--color-signal-strong);
+  --color-warning: var(--color-warning);
+  --color-critical: var(--color-critical);
+  --color-positive: var(--color-positive);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --color-radar: var(--color-radar);
+  --color-radar-line: var(--color-radar-line);
+  --color-radar-glow: var(--color-radar-glow);
+}
 
 body {
   @apply bg-paper text-ink font-sans antialiased;
 }
 
+::selection { background: color-mix(in srgb, var(--color-signal) 22%, transparent); }
+
 /* tabular numerals for statistical values (UI_UX_DESIGN.md §7) */
 .tnum { font-variant-numeric: tabular-nums; }
+
+/* subtle elevation for cards / tiles; hairline stays the primary separator */
+.obs-card { box-shadow: var(--shadow-card); }
+
+/* interactive surfaces get a gentle, motion-safe lift on hover */
+.obs-hover { transition: box-shadow 0.15s ease, transform 0.15s ease; }
+.obs-hover:hover { box-shadow: var(--shadow-card); transform: translateY(-1px); }
+
+/* Index Pulse — a live radar ping, shown only for genuinely LIVE data (statistical honesty) */
+.pulse-dot { position: relative; }
+.pulse-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  animation: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px color-mix(in srgb, var(--dot) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot) 0%, transparent); }
+}
+
+/* thin, unobtrusive scrollbars to match the instrument aesthetic */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-grid) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-grid);
+  border-radius: 9999px;
+  border: 3px solid var(--color-paper);
+}
+*::-webkit-scrollbar-thumb:hover { background: #cdd4df; }
 
 /* visible focus everywhere (UI_UX_DESIGN.md §24) */
 :focus-visible {
