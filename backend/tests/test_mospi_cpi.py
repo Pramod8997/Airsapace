@@ -134,3 +134,21 @@ def test_live_fetch():
     june = [p for p in points if p.date == date(2026, 6, 1)]
     if june:
         assert june[0].value == pytest.approx(126.09, abs=0.01)
+
+
+def test_every_cpi_month_lies_inside_the_replay_window():
+    """PS 26056 demands a real backtest depth: the replay window must cover
+    every month of the official CPI Airfare series, so the monthly-mean
+    alignment never silently shrinks (it was 2 points before 2026-09-10)."""
+    from datetime import timedelta
+
+    from scripts.generate_replay_data import DAYS, START
+
+    points = load_cpi_from_fixture()
+    assert points, "CPI fixture missing"
+    last_day = START + timedelta(days=DAYS - 1)
+    for p in points:
+        assert START <= p.date <= last_day, (
+            f"CPI month {p.date} falls outside replay window "
+            f"{START}..{last_day} — backtest would lose an aligned point"
+        )

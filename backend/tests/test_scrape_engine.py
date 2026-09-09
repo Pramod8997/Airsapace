@@ -7,6 +7,7 @@ from datetime import date
 import httpx
 import pytest
 
+import collectors.sources.scrape_engine as scrape_engine_module
 from collectors.core.base_source import SourcePolicyError
 from collectors.core.models import FlightSearchQuery
 from collectors.sources.scrape_engine import (
@@ -16,6 +17,7 @@ from collectors.sources.scrape_engine import (
     ScrapeEngine,
     _anti_bot_signature,
     _looks_like_captcha,
+    _retry_after_s,
 )
 
 
@@ -176,3 +178,159 @@ def test_parse_fares_maps_canonical_quotes():
 def test_parse_fares_empty_html_yields_nothing():
     engine = ScrapeEngine(min_interval_s=0)
     assert engine.parse_fares("<html>no results</html>", _query()) == []
+
+
+# ---------------------------------------------------------------- bounded retry (TRD §12)
+
+
+def _no_sleep(monkeypatch) -> list[float]:
+    """Neutralize retry sleeps; record the delays asked for."""
+    recorded: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(scrape_engine_module.asyncio, "sleep", fake_sleep)
+    return recorded
+
+
+def _counting_engine(handler) -> tuple[ScrapeEngine, list[httpx.Request]]:
+    """Engine over a permissive robots.txt + a stateful page handler."""
+    requests: list[httpx.Request] = []
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        return handler(request)
+
+    engine = ScrapeEngine(
+        client=httpx.AsyncClient(transport=httpx.MockTransport(wrapped)), min_interval_s=0
+    )
+    return engine, requests
+
+
+def test_transient_500_retries_and_succeeds(monkeypatch):
+    sleeps = _no_sleep(monkeypatch)
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(500, text="boom")
+        return httpx.Response(200, text="<html>ok</html>")
+
+    async def run():
+        engine, requests = _counting_engine(handler)
+        body = await engine.fetch_page("https://portal.test/f")
+        assert body == "<html>ok</html>"
+        assert len(requests) == 3  # robots + failed attempt + one retry
+        assert sleeps == [scrape_engine_module.RETRY_BACKOFF_S[0]]
+
+    asyncio.run(run())
+
+
+def test_403_is_never_retried():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(403, text="Access Denied Reference #1.22.abc")
+
+    async def run():
+        engine, requests = _counting_engine(handler)
+        with pytest.raises(SourcePolicyError, match="akamai_block"):
+            await engine.fetch_page("https://portal.test/f")
+        assert len(requests) == 2  # robots + exactly one page attempt
+
+    asyncio.run(run())
+
+
+def test_429_with_retry_after_is_honored_once(monkeypatch):
+    sleeps = _no_sleep(monkeypatch)
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"retry-after": "7"}, text="slow down")
+        return httpx.Response(200, text="<html>ok</html>")
+
+    async def run():
+        engine, _ = _counting_engine(handler)
+        assert await engine.fetch_page("https://portal.test/f") == "<html>ok</html>"
+        assert sleeps == [7.0]  # server's Retry-After, not the backoff ladder
+
+    asyncio.run(run())
+
+
+def test_429_without_retry_after_is_policy_stop():
+    def handler(request):
+        return httpx.Response(429, text="slow down")
+
+    async def run():
+        engine, requests = _counting_engine(handler)
+        with pytest.raises(SourcePolicyError, match="throttled"):
+            await engine.fetch_page("https://portal.test/f")
+        assert len(requests) == 2  # robots + one attempt, no retry
+
+    asyncio.run(run())
+
+
+def test_network_error_retries_then_succeeds(monkeypatch):
+    _no_sleep(monkeypatch)
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("refused")
+        return httpx.Response(200, text="<html>ok</html>")
+
+    async def run():
+        engine, _ = _counting_engine(handler)
+        assert await engine.fetch_page("https://portal.test/f") == "<html>ok</html>"
+
+    asyncio.run(run())
+
+
+def test_5xx_exhausts_retry_budget_and_raises():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(503, text="unavailable")
+
+    async def run():
+        engine, requests = _counting_engine(handler)
+        with pytest.raises(RuntimeError, match="503"):
+            await engine.fetch_page("https://portal.test/f")
+        assert len(requests) == 4  # robots + 1 attempt + 2 retries
+
+    asyncio.run(run())
+
+
+def test_fetch_bytes_returns_binary_content():
+    def handler(request):
+        return httpx.Response(200, content=b"%PDF-1.4 fake tariff")
+
+    async def run():
+        engine, _ = _counting_engine(handler)
+        data = await engine.fetch_bytes("https://portal.test/fare-sheet.pdf")
+        assert data.startswith(b"%PDF")
+
+    asyncio.run(run())
+
+
+def test_retry_after_header_parsing():
+    ok = httpx.Response(200, headers={"retry-after": "30"},
+                        request=httpx.Request("GET", "https://x.test/"))
+    capped = httpx.Response(200, headers={"retry-after": "9999"},
+                            request=httpx.Request("GET", "https://x.test/"))
+    http_date = httpx.Response(200, headers={"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"},
+                               request=httpx.Request("GET", "https://x.test/"))
+    absent = httpx.Response(200, request=httpx.Request("GET", "https://x.test/"))
+    assert _retry_after_s(ok) == 30.0
+    assert _retry_after_s(capped) == 60.0  # capped
+    assert _retry_after_s(http_date) is None  # HTTP-date form -> normal backoff
+    assert _retry_after_s(absent) is None

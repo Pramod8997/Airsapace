@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from datetime import date, datetime, time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -35,12 +34,12 @@ import httpx
 
 from collectors.core.base_source import FlightSource
 from collectors.core.models import Availability, FlightQuote, FlightSearchQuery, SourceHealth
+from collectors.sources.scrape_engine import ScrapeEngine
 
 IST = ZoneInfo("Asia/Kolkata")
 FIXTURE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "fixtures"
 USER_AGENT = "AirStatIndia-Research/1.0 (SIH 26056)"
-POLITENESS_SLEEP_S = 10.0
-REQUEST_TIMEOUT_S = 30.0
+POLITENESS_SLEEP_S = 10.0  # engine rate-limit interval between live route fetches
 POLICY_STATUS = "ROBOTS_ALLOWED_SEO"
 
 # IATA -> city slug used in yatra.com route-page URLs (basket cities).
@@ -124,16 +123,19 @@ class YatraSource(FlightSource):
 
     Default mode reads saved fixtures (data/fixtures/yatra_<orig>_<dest>.txt) so
     tests and the demo never depend on live scraping. Set ``YATRA_LIVE=1`` to
-    fetch the real pages (declared UA, 30s timeout, 10s politeness sleep between
-    route fetches).
+    fetch the real pages through the shared compliance engine — robots.txt
+    gate, rate limit (10s), anti-bot/CAPTCHA detection, bounded retry — the
+    same path every other source goes through.
     """
 
     source_id = "yatra-ota"
     adapter_version = "1.0"
-    _last_live_fetch = 0.0  # monotonic timestamp of last live fetch
+
+    def __init__(self, engine: ScrapeEngine | None = None):
+        self._engine = engine or ScrapeEngine(min_interval_s=POLITENESS_SLEEP_S)
 
     async def search(self, query: FlightSearchQuery) -> list[FlightQuote]:
-        text = self._fetch(query)
+        text = await self._fetch(query)
         if text is None:
             return []
         return parse_yatra_page(text, query)
@@ -160,29 +162,14 @@ class YatraSource(FlightSource):
             checked_at=datetime.now(IST),
         )
 
-    def _fetch(self, query: FlightSearchQuery) -> str | None:
+    async def _fetch(self, query: FlightSearchQuery) -> str | None:
         if os.environ.get("YATRA_LIVE") != "1":
             path = FIXTURE_DIR / f"yatra_{query.origin.lower()}_{query.destination.lower()}.txt"
             return path.read_text(encoding="utf-8") if path.exists() else None
 
-        # TODO: route through EthicalHttpClient when scrape_engine v2 lands.
         origin_city = CITY_NAMES.get(query.origin)
         dest_city = CITY_NAMES.get(query.destination)
         if not origin_city or not dest_city:
             return None  # route not covered by URL scheme
         url = f"https://www.yatra.com/cheap-flights/search/{origin_city}-to-{dest_city}-flights"
-        self._politeness_pause()
-        resp = httpx.get(
-            url, headers={"User-Agent": USER_AGENT},
-            timeout=REQUEST_TIMEOUT_S, follow_redirects=True,
-        )
-        resp.raise_for_status()
-        return resp.text
-
-    @classmethod
-    def _politeness_pause(cls) -> None:
-        if cls._last_live_fetch:
-            wait = POLITENESS_SLEEP_S - (time.monotonic() - cls._last_live_fetch)
-            if wait > 0:
-                time.sleep(wait)
-        cls._last_live_fetch = time.monotonic()
+        return await self._engine.fetch_page(url)

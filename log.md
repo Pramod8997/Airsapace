@@ -1184,3 +1184,166 @@ Result: pipeline green, 4 processes up, 1s cycling, DB bounded at ~90 virtual
 
 - [ ] Commit the session.
 - [ ] Teammate runs make.bat --demo on Windows once.
+
+------------------------------------------------------------------------
+
+# 2026-09-09 --- Test-env hardening: YATRA_LIVE cannot flip tests to live mode
+
+**Status:** DONE
+
+## Objective
+
+- Root-cause and fix a flaky-looking failure:
+  test_search_uses_fixture_mode_by_default failed with 0 quotes + a live
+  HTTP GET to yatra.com in the test log.
+
+## Root Cause
+
+- `YATRA_LIVE=1` leaked into the test process from the user's shell (set
+  while trying live demo mode). The Yatra adapter then fetched the live
+  page, whose raw HTML lacks the reader-proxy-rendered fare-strip format
+  the parser targets → 0 quotes (honest empty, no fabrication) → assert
+  failure. Nothing was wrong with fixture mode itself (verified by direct
+  call and isolated test run).
+
+## Work Completed
+
+- [x] `backend/tests/conftest.py`: `os.environ.pop("YATRA_LIVE", None)` —
+  tests now always run in fixture mode regardless of ambient shell env.
+- [x] Verified both ways: normal run 119 passed / 1 skipped; with
+  `YATRA_LIVE=1` force-exported, all tests still green, zero network calls.
+
+## Files Changed
+
+```text
+- backend/tests/conftest.py (one line + comment)
+```
+
+## Tests
+
+```text
+Command: .venv/bin/python -m pytest backend/tests -q; YATRA_LIVE=1 .venv/bin/python -m pytest backend/tests/test_yatra.py -q
+Result: 119 passed, 1 skipped; 14 passed (with the var exported)
+```
+
+------------------------------------------------------------------------
+
+# 2026-09-10 --- PS-Alignment Pass: Backtest Depth, Engine Unification, Source Probe, Playwright JS Path, Scheduler
+
+**Status:** DONE
+
+## What
+
+A clause-by-clause audit of PS 26056 against the actual code found five real
+gaps; this pass closes all five. Parallel subagents were unavailable (API
+quota/auth), so the work was done directly, phase by phase.
+
+### 1. Backtest depth (was the weakest judge-visible point)
+
+The CPI Airfare comparison aligned on only ~2 monthly points. Extended the
+deterministic replay dataset from 75 days to 379 days
+(`2025-08-25 → 2026-09-07`; `scripts/generate_replay_data.py` START/DAYS), moving
+the base period to `2025-08-25 → 2025-09-23` (`scripts/seed.py`) so it precedes
+the CPI window. Reseed: 72,010 jobs / 185,368 quotes. Backtest now aligns on
+**all 6 published CPI months** (live-verified: the MoSPI API returns exactly
+Oct-Dec 2025 + May-Jul 2026; 2024 is empty — 6 is the official ceiling):
+`n_points=6, correlation=0.68, MAPE=6.3%`. Added regression test
+`test_every_cpi_month_lies_inside_the_replay_window` so the window can never
+silently shrink.
+
+-   `replay_quotes.jsonl` untracked from git (96MB — at GitHub's 100MB file
+    limit; deterministically regenerable; make.sh already regenerates).
+
+### 2. Engine unification + collection resilience (TRD §12)
+
+-   `ScrapeEngine.fetch_page`: bounded retry — up to 2 retries with
+    exponential backoff on transient failures (network errors, 5xx); a
+    429/503 `Retry-After` is honored once, capped at 60s. Policy stops
+    (robots, 401/403, 429 without Retry-After, CAPTCHA) raise immediately
+    and are never retried. New `fetch_bytes` (binary variant, PDF tariffs).
+-   Yatra live path routed through the engine (closes the in-code TODO);
+    Akasa `fetch_pdf` via `fetch_bytes` and made async (collect_demo awaits).
+-   Akasa loader now iterates the Route registry (alliance pattern) instead
+    of the single hardcoded BLR-DEL route.
+
+### 3. Source probe — honest registry for every PS-named portal
+
+New `scripts/probe_sources.py` (offline, table-driven from frozen research
+`docs/research_sources.md` + `data/fixtures/robots/`): registers IndiGo, Air
+India, Air India Express, SpiceJet, MakeMyTrip, Goibibo, EaseMyTrip,
+Cleartrip, Ixigo as `active=False` with `RESTRICTED_DOCUMENTED` /
+`REJECTED_ROBOTS_OR_TOS` + verbatim robots.txt evidence. Fixture
+`data/fixtures/source_probe.json` committed; `--live` refreshes robots
+evidence only (verdicts change only via the research doc). seed.py calls
+`register_probed_sources`; SourcesPage gained the two badge styles.
+
+### 4. Playwright JS-rendering path (PS names the toolchain)
+
+New `collectors/sources/js_engine.py`: `JSScrapeEngine` renders with headless
+Chromium **behind the identical compliance gate** (robots → rate limit →
+declared UA render → CAPTCHA/anti-bot detect → SourcePolicyError pause).
+Session = browser context. No stealth/evasion, ever. Import-guarded — nothing
+depends on playwright being installed. Sim portal gained
+`/flights/search-data` (JSON) + `/flights/search-js` (shell whose inline
+script injects fares client-side — static httpx sees nothing, Playwright sees
+the fares). `LiveSimPortalJS` source registered + in the collect rotation.
+Real-browser end-to-end test passes (3 quotes rendered).
+
+### 5. Scheduled daily extraction (TRD §11)
+
+New `scripts/schedule_collect.py` (APScheduler, cron 08:00 IST, `--at`,
+`--once`; coalesce + misfire grace; idempotent job keys). `collect_demo.py`
+gained `--real-clock` (collect for TODAY instead of the virtual demo clock).
+
+### Bug found and fixed during verification
+
+The demo retention prune (`prune_demo_data`) deleted the methodology base
+period once the replay window exceeded 90 days — "no observations in base
+period" on the first post-change collect cycle. Root-cause fix: the prune
+floor is now `base_period_end + 1`; the base period is never prunable.
+Also: unregistered optional sources no longer kill a collect cycle
+(ValueError caught with a re-seed hint).
+
+## Files changed
+
+-   `scripts/generate_replay_data.py`, `scripts/seed.py` — window + base period
+-   `collectors/sources/scrape_engine.py` — retry, fetch_bytes, parse_fare_rows
+-   `collectors/sources/yatra.py`, `collectors/sources/akasa_tariff.py` — engine routing, async PDF fetch, registry iteration
+-   `scripts/probe_sources.py` (new), `data/fixtures/source_probe.json` (new)
+-   `collectors/sources/js_engine.py` (new), `scripts/serve_sim_portal.py` — JS endpoints
+-   `scripts/schedule_collect.py` (new), `scripts/collect_demo.py` — real-clock + prune fix + JS rotation
+-   `backend/tests/` — test_scrape_engine (retry), test_yatra (engine wiring), test_mospi_cpi (window), test_probe_sources (new), test_js_engine (new), test_scheduler (new), test_api (counts 24)
+-   `frontend/src/pages/SourcesPage.tsx` — RESTRICTED/REJECTED badges
+-   `requirements.txt` — apscheduler, playwright (optional)
+-   `make.sh` — `--schedule` mode (servers + daily 08:00 IST scheduler, one cycle now); scheduler pidfile in `--stop`; dependency re-check for venvs predating apscheduler; prune wording fix
+-   `README.md`, `memory.md` — numbers, new sections, decisions
+-   `.gitignore` — replay fixture untracked
+
+## Verification
+
+```text
+Command: .venv/bin/python -m pytest backend/tests -q
+Result: 152 passed, 1 skipped (CPI live opt-in)   [was 119 passed]
+
+Command: .venv/bin/python scripts/seed.py (backtest line)
+Result: n_points=6, mae=7.73, rmse=9.43, mape=6.31, correlation=0.68
+
+Command: portal up + .venv/bin/python -m pytest backend/tests/test_js_engine.py -q
+Result: 7 passed (incl. real-browser end-to-end render)
+
+Command: timeout 30 .venv/bin/python scripts/schedule_collect.py --once
+Result: scheduler starts, one real-clock cycle runs, next fire time printed
+
+Frontend: npx tsc -b && npm run build → clean
+```
+
+## Known limitations
+
+-   The backtest's APIx side is synthetic replay data (labeled as such); the
+    comparison demonstrates the framework against the official series —
+    co-movement framing only, never equivalence.
+-   Mixing replay history with fresh sim collection shows a level shift at
+    the data-mode boundary (replay carries a year of drift; sim anchors
+    fresh) — visible on the Overview trend, honest, documented here.
+-   Playwright browsers (~300MB) are optional; without them the JS portal
+    source skips cleanly and everything else is unaffected.

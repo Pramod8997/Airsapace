@@ -99,3 +99,22 @@ async def test_health_check_fixture_mode():
     health = await YatraSource().health_check()
     assert health.ok and health.source_id == "yatra-ota"
     assert "ROBOTS_ALLOWED_SEO" in health.detail
+
+
+@pytest.mark.anyio
+async def test_live_mode_routes_through_the_compliance_engine(monkeypatch):
+    """YATRA_LIVE=1 must fetch via ScrapeEngine — robots gate, rate limit,
+    anti-bot detection — never a raw httpx call (closes the old TODO)."""
+    monkeypatch.setenv("YATRA_LIVE", "1")
+    fetched: list[str] = []
+
+    class FakeEngine:
+        async def fetch_page(self, url: str) -> str:
+            fetched.append(url)
+            return _fixture("yatra_del_bom")
+
+    quotes = await YatraSource(engine=FakeEngine()).search(_query("DEL", "BOM"))
+    assert len(quotes) == 7
+    assert fetched == [
+        "https://www.yatra.com/cheap-flights/search/delhi-to-mumbai-flights"
+    ]

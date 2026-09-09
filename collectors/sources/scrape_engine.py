@@ -90,6 +90,23 @@ class RateLimiter:
             self._last = time.monotonic()
 
 
+# TRD §12 resilience: bounded retry budget = 2 retries, exponential backoff.
+RETRY_BACKOFF_S = (1.0, 4.0)
+RETRY_AFTER_CAP_S = 60.0  # never sleep longer than this on a server's Retry-After
+
+
+def _retry_after_s(resp: httpx.Response) -> float | None:
+    """Retry-After header -> capped seconds. None when absent or in the
+    HTTP-date form (fall back to normal backoff rather than parsing dates)."""
+    value = resp.headers.get("retry-after")
+    if value is None:
+        return None
+    try:
+        return min(float(value), RETRY_AFTER_CAP_S)
+    except ValueError:
+        return None
+
+
 FARE_ROW_RE = re.compile(
     '<div class="fare-row" data-airline="(?P<airline>[A-Z0-9]{2})" '
     'data-price="(?P<price>[0-9.]+)" data-soldout="(?P<soldout>[01])" '
@@ -116,9 +133,42 @@ def _anti_bot_signature(resp: httpx.Response) -> str | None:
     return None
 
 
+def parse_fare_rows(html: str, query: FlightSearchQuery, source_id: str) -> list[FlightQuote]:
+    """HTML -> canonical quotes (module-level so the JS engine maps fares with
+    the exact same logic). Parse failures -> no quotes (job PARTIAL),
+    never fabricated prices."""
+    collected = datetime.now(IST)
+    quotes: list[FlightQuote] = []
+    for m in FARE_ROW_RE.finditer(html):
+        price = float(m.group("price"))
+        sold = m.group("soldout") == "1"
+        quotes.append(FlightQuote(
+            source_id=source_id,
+            origin=query.origin,
+            destination=query.destination,
+            departure_date=query.departure_date,
+            departure_time=m.group("time"),
+            airline=m.group("airline"),
+            flight_number=m.group("flight"),
+            advance_days=query.advance_days,
+            base_fare=price,
+            taxes=0.0,
+            mandatory_fees=0.0,
+            total_fare=price,
+            availability=Availability.SOLD_OUT if sold else Availability.AVAILABLE,
+            collected_at=collected,
+        ))
+    return quotes
+
+
 class ScrapeEngine:
     """Fetch + parse + canonical-map, with robots gate and rate limit. Raises
-    SourcePolicyError on ANY restriction; callers record FAILED jobs."""
+    SourcePolicyError on ANY restriction; callers record FAILED jobs.
+
+    Resilience (TRD §12): transient failures (network errors, 5xx) are retried
+    up to 2 times with exponential backoff; a 429/503 Retry-After is honored
+    once, capped at 60s. Policy stops (robots disallow, 401/403, 429 without
+    Retry-After, CAPTCHA) raise immediately and are never retried."""
 
     def __init__(self, client: httpx.AsyncClient | None = None, min_interval_s: float = 5.0):
         if not client:
@@ -133,46 +183,53 @@ class ScrapeEngine:
         if not await self._robots.allowed(url):
             raise SourcePolicyError(f"robots.txt disallows {url} — not fetching")
         await self._limiter.wait()
-        resp = await self._client.get(url)
-        if resp.status_code in (401, 403, 429):
-            retry_after = resp.headers.get("retry-after")
-            reason = _anti_bot_signature(resp) or f"source refused ({resp.status_code})"
-            msg = f"{reason} at {url} — pausing"
-            if retry_after:
-                msg += f" (Retry-After: {retry_after}s)"
-            raise SourcePolicyError(msg)
-        if resp.status_code != 200:
-            raise RuntimeError(f"HTTP {resp.status_code} from {url}")
-        body = resp.text
+        body = (await self._get_with_retry(url)).text
         if _looks_like_captcha(body):
             raise SourcePolicyError(f"CAPTCHA challenge at {url} — pausing, never bypassing")
         return body
 
+    async def fetch_bytes(self, url: str) -> bytes:
+        """Binary variant (published tariff PDFs): identical compliance path."""
+        if not await self._robots.allowed(url):
+            raise SourcePolicyError(f"robots.txt disallows {url} — not fetching")
+        await self._limiter.wait()
+        return (await self._get_with_retry(url)).content
+
+    async def _get_with_retry(self, url: str) -> httpx.Response:
+        last_exc: Exception | None = None
+        for attempt in range(1 + len(RETRY_BACKOFF_S)):
+            try:
+                resp = await self._client.get(url)
+            except (httpx.HTTPError, OSError) as exc:  # timeout / connect / DNS
+                last_exc = exc
+                if attempt < len(RETRY_BACKOFF_S):
+                    await asyncio.sleep(RETRY_BACKOFF_S[attempt])
+                continue
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code in (401, 403):
+                reason = _anti_bot_signature(resp) or f"source refused ({resp.status_code})"
+                raise SourcePolicyError(f"{reason} at {url} — pausing")
+            if resp.status_code == 429:
+                wait_s = _retry_after_s(resp)
+                if wait_s is None or attempt == len(RETRY_BACKOFF_S):
+                    raise SourcePolicyError(f"throttled (429) at {url} — pausing")
+                await asyncio.sleep(wait_s)
+                continue
+            if resp.status_code >= 500:
+                last_exc = RuntimeError(f"HTTP {resp.status_code} from {url}")
+                if attempt < len(RETRY_BACKOFF_S):
+                    wait_s = _retry_after_s(resp) or RETRY_BACKOFF_S[attempt]
+                    await asyncio.sleep(wait_s)
+                continue
+            raise RuntimeError(f"HTTP {resp.status_code} from {url}")
+        assert last_exc is not None
+        raise last_exc
+
     def parse_fares(self, html: str, query: FlightSearchQuery) -> list[FlightQuote]:
         """HTML -> canonical quotes. Parse failures -> no quotes (job PARTIAL),
         never fabricated prices."""
-        collected = datetime.now(IST)
-        quotes: list[FlightQuote] = []
-        for m in FARE_ROW_RE.finditer(html):
-            price = float(m.group("price"))
-            sold = m.group("soldout") == "1"
-            quotes.append(FlightQuote(
-                source_id="scrape-portal-demo",
-                origin=query.origin,
-                destination=query.destination,
-                departure_date=query.departure_date,
-                departure_time=m.group("time"),
-                airline=m.group("airline"),
-                flight_number=m.group("flight"),
-                advance_days=query.advance_days,
-                base_fare=price,
-                taxes=0.0,
-                mandatory_fees=0.0,
-                total_fare=price,
-                availability=Availability.SOLD_OUT if sold else Availability.AVAILABLE,
-                collected_at=collected,
-            ))
-        return quotes
+        return parse_fare_rows(html, query, "scrape-portal-demo")
 
 
 class LiveSimPortal(FlightSource):

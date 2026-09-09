@@ -36,17 +36,15 @@ from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import httpx
-
 from collectors.core.base_source import FlightSource
 from collectors.core.models import Availability, FlightQuote, FlightSearchQuery, SourceHealth
+from collectors.sources.scrape_engine import ScrapeEngine
 
 log = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 FIXTURE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "fixtures" / "akasa_faresheet.pdf"
 PDF_URL = "https://a.storyblok.com/f/159922/x/c1ce86c83e/fare-sheet-akasa-air.pdf"
-USER_AGENT = "AirStatIndia-Research/1.0 (SIH 26056)"
 POLICY_STATUS = "PUBLISHED_TARIFF_PDF"
 ADVANCE_DAYS = 1  # documented convention: tariff is advance-agnostic
 
@@ -146,17 +144,26 @@ def extract_pdf_text(pdf_path: Path) -> str:
     return proc.stdout
 
 
-def fetch_pdf() -> Path:
-    """Refetch the live fare sheet into the fixture path. AKASA_LIVE=1 only."""
-    resp = httpx.get(
-        PDF_URL, headers={"User-Agent": USER_AGENT},
-        timeout=30.0, follow_redirects=True,
+def extract_pdf_text(pdf_path: Path) -> str:
+    """Run pdftotext -layout. Raises FileNotFoundError if the binary is absent."""
+    proc = subprocess.run(
+        ["pdftotext", "-layout", str(pdf_path), "-"],
+        capture_output=True, text=True, timeout=60, check=True,
     )
-    resp.raise_for_status()
-    if not resp.content[:5].startswith(b"%PDF"):
+    return proc.stdout
+
+
+async def fetch_pdf(engine: ScrapeEngine | None = None) -> Path:
+    """Refetch the live fare sheet into the fixture path. AKASA_LIVE=1 only.
+
+    Goes through the shared compliance engine (robots gate, rate limit, bounded
+    retry) via fetch_bytes — same path as every other live fetch."""
+    engine = engine or ScrapeEngine(min_interval_s=10.0)
+    content = await engine.fetch_bytes(PDF_URL)
+    if not content[:5].startswith(b"%PDF"):
         raise ValueError("response is not a PDF")
-    FIXTURE_PATH.write_bytes(resp.content)
-    log.info("akasa fare sheet refreshed", extra={"bytes": len(resp.content)})
+    FIXTURE_PATH.write_bytes(content)
+    log.info("akasa fare sheet refreshed", extra={"bytes": len(content)})
     return FIXTURE_PATH
 
 
@@ -166,9 +173,12 @@ class AkasaTariffSource(FlightSource):
     source_id = "akasa-tariff"
     adapter_version = "1.0"
 
+    def __init__(self, engine: ScrapeEngine | None = None):
+        self._engine = engine
+
     async def search(self, query: FlightSearchQuery) -> list[FlightQuote]:
         try:
-            text = self._text()
+            text = await self._text()
         except Exception as exc:
             log.warning("akasa sheet unreadable: %s", exc)
             return []
@@ -177,7 +187,7 @@ class AkasaTariffSource(FlightSource):
     async def health_check(self) -> SourceHealth:
         effective = None
         try:
-            effective = parse_effective_date(self._text())
+            effective = parse_effective_date(await self._text())
             ok, detail = True, f"{POLICY_STATUS}; effective {effective}"
         except Exception as exc:
             ok, detail = False, f"fixture unreadable: {exc}"
@@ -186,30 +196,32 @@ class AkasaTariffSource(FlightSource):
             checked_at=datetime.now(IST),
         )
 
-    def _text(self) -> str:
+    async def _text(self) -> str:
         if os.environ.get("AKASA_LIVE") == "1":
-            fetch_pdf()
+            await fetch_pdf(self._engine)
         if not FIXTURE_PATH.exists():
             raise FileNotFoundError(f"missing fixture {FIXTURE_PATH}")
         return extract_pdf_text(FIXTURE_PATH)
 
 
-def load_akasa_tariff(session, collection_day: date) -> int:
-    """Ingest the Akasa fare sheet for every basket route it covers.
+async def load_akasa_tariff(session, collection_day: date) -> int:
+    """Ingest the Akasa fare sheet for every registry route it covers.
 
-    Follows scripts/collect_demo.py's pattern: per-route JobSpec + ingest_quotes.
+    Follows the alliance loader's pattern: iterate the Route registry, skip
+    routes with no matching market rows in the sheet.
     Returns the number of quotes stored. Requires the source/route registry rows
     (seed integration).
     """
+    from sqlalchemy import select
+
+    from backend.app.models import Route  # local import avoids cycle
     from backend.app.services.pipeline import JobSpec, ingest_quotes
 
-    source = AkasaTariffSource()
-    text = source._text()
+    text = await AkasaTariffSource()._text()
     now = datetime.combine(collection_day, dtime(8, 0), tzinfo=IST)
     stored = 0
-    # ponytail: fixed basket route list here; route registry iteration when
-    # more tariff sources land.
-    for route_id in ("BLR-DEL",):
+    registry_routes = set(session.scalars(select(Route.id)))
+    for route_id in sorted(registry_routes):
         origin, dest = route_id.split("-")
         query = FlightSearchQuery(
             origin=origin, destination=dest,

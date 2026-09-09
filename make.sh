@@ -7,6 +7,7 @@
 #   ./make.sh --keep     re-seed without dropping tables (keeps existing data)
 #   ./make.sh --serve    skip pipeline, just start both servers
 #   ./make.sh --demo     FULL EXPERIENCE: pipeline + servers + sim portal + 1s collector loop
+#   ./make.sh --schedule scheduled mode: servers + daily 08:00 IST collection cycle (runs one cycle now)
 #   ./make.sh --stop     stop any AirStat servers started by this script
 #   ./make.sh --test     run backend tests only
 #   ./make.sh --fresh-data  force regeneration of the replay dataset
@@ -21,6 +22,7 @@ API_PID=""
 UI_PID=""
 PORTAL_PID=""
 COLLECTOR_PID=""
+SCHEDULER_PID=""
 RUN_DIR="/tmp/airstat"
 LOCK="$RUN_DIR/pipeline.lock"
 mkdir -p "$RUN_DIR"
@@ -36,7 +38,7 @@ fi
 echo $$ > "$LOCK"
 
 stop_existing() {
-  for pidfile in "$RUN_DIR/api.pid" "$RUN_DIR/ui.pid" "$RUN_DIR/portal.pid" "$RUN_DIR/collector.pid"; do
+  for pidfile in "$RUN_DIR/api.pid" "$RUN_DIR/ui.pid" "$RUN_DIR/portal.pid" "$RUN_DIR/collector.pid" "$RUN_DIR/scheduler.pid"; do
     if [[ -f "$pidfile" ]]; then
       pid=$(cat "$pidfile")
       if kill "$pid" 2>/dev/null; then log "stopped $pidfile pid=$pid"; fi
@@ -90,11 +92,24 @@ start_portal() {
 
 start_collector() {
   local interval="${1:-1}"
-  log "starting collector loop: fresh collection every ${interval}s (DB auto-pruned to 90 virtual days)"
+  log "starting collector loop: fresh collection every ${interval}s (demo retention prunes to 90 virtual days, base period always kept)"
   nohup "$PY" scripts/collect_demo.py --interval "$interval" >"$RUN_DIR/collector.log" 2>&1 &
   COLLECTOR_PID=$!
   echo "$COLLECTOR_PID" > "$RUN_DIR/collector.pid"
   log "collector running (pid $COLLECTOR_PID) — dashboard auto-refreshes every 10s"
+}
+
+start_scheduler() {
+  log "starting scheduled daily collection (08:00 IST, one cycle now)"
+  nohup "$PY" scripts/schedule_collect.py --once >"$RUN_DIR/scheduler.log" 2>&1 &
+  SCHEDULER_PID=$!
+  echo "$SCHEDULER_PID" > "$RUN_DIR/scheduler.pid"
+  sleep 2
+  if kill -0 "$SCHEDULER_PID" 2>/dev/null; then
+    log "scheduler running (pid $SCHEDULER_PID)"
+  else
+    warn "scheduler exited immediately — check $RUN_DIR/scheduler.log"; return 1
+  fi
 }
 
 cleanup() {
@@ -102,6 +117,7 @@ cleanup() {
   [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
   [[ -n "$PORTAL_PID" ]] && kill "$PORTAL_PID" 2>/dev/null || true
   [[ -n "$COLLECTOR_PID" ]] && kill "$COLLECTOR_PID" 2>/dev/null || true
+  [[ -n "$SCHEDULER_PID" ]] && kill "$SCHEDULER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -127,13 +143,28 @@ case "$ARG" in
     wait
     ;;
 
+  --schedule)
+    stop_existing || true
+    start_scheduler || warn "continuing without scheduler"
+    start_api
+    start_ui
+    log "scheduled mode: daily collection at 08:00 IST (cron equivalent: 0 8 * * *)"
+    log "dashboard: http://localhost:$UI_PORT  ·  API: http://127.0.0.1:$API_PORT/health"
+    log "logs in $RUN_DIR/{scheduler,api,ui}.log — stop with ./make.sh --stop"
+    wait
+    ;;
+
   *)
     MODE="$ARG"
 
-    # 1. environment
-    if [[ ! -x "$PY" ]]; then
-      log "creating Python venv"
-      python3 -m venv "$VENV"
+    # 1. environment (reinstall when requirements gained deps the venv predates)
+    if [[ ! -x "$PY" ]] || ! "$PY" -c "import apscheduler, fastapi" >/dev/null 2>&1; then
+      if [[ ! -x "$PY" ]]; then
+        log "creating Python venv"
+        python3 -m venv "$VENV"
+      else
+        log "venv missing dependencies — installing requirements.txt"
+      fi
       "$PY" -m pip install --quiet -r requirements.txt
     fi
 

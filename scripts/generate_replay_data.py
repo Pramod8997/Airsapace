@@ -18,8 +18,11 @@ from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
 SEED = 26056
-START = date(2026, 6, 25)
-DAYS = 75  # 2026-06-25 .. 2026-09-07; first 30 days = base period
+START = date(2025, 8, 25)
+DAYS = 379  # 2025-08-25 .. 2026-09-07; first 30 days = base period.
+# Window chosen so every CPI Airfare fixture month (2025-10 .. 2026-07, the
+# full public series) is covered by replay monthly means — the backtest
+# aligns on all 6 official points instead of 2.
 OUT_PATH = Path("data/fixtures/replay_quotes.jsonl")
 
 AIRPORTS = {

@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "name": "PS 26056 source probe \u2014 honest registry statuses",
+    "generated_from": "docs/research_sources.md (frozen 2026-09-09) + data/fixtures/robots/",
+    "note": "Offline evidence; scripts/probe_sources.py --live re-fetches robots.txt to refresh the saved fixtures. Verdicts change only via the research doc."
+  },
+  "sources": [
+    {
+      "source_id": "indigo-portal",
+      "name": "IndiGo (goindigo.in)",
+      "source_type": "AIRLINE",
+      "url": "https://www.goindigo.in",
+      "robots_fixture": "robots_goindigo.txt",
+      "robots_evidence": "Disallow: /search.html",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "RESTRICTED_DOCUMENTED"
+    },
+    {
+      "source_id": "airindia-portal",
+      "name": "Air India (airindia.com)",
+      "source_type": "AIRLINE",
+      "url": "https://www.airindia.com",
+      "robots_fixture": "robots_airindia.txt",
+      "robots_evidence": "no fare-path disallow in robots.txt, but ToS prohibits automated extraction \u2014 ToS wins",
+      "robots_status": "PERMISSIVE_TOS_WINS",
+      "policy_status": "RESTRICTED_DOCUMENTED"
+    },
+    {
+      "source_id": "aix-portal",
+      "name": "Air India Express (airindiaexpress.com)",
+      "source_type": "AIRLINE",
+      "url": "https://www.airindiaexpress.com",
+      "robots_fixture": "robots_aix2.txt",
+      "robots_evidence": "Disallow: /flight-availability",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "RESTRICTED_DOCUMENTED"
+    },
+    {
+      "source_id": "spicejet-portal",
+      "name": "SpiceJet (spicejet.com)",
+      "source_type": "AIRLINE",
+      "url": "https://www.spicejet.com",
+      "robots_fixture": "robots_spicejet.txt",
+      "robots_evidence": "robots.txt has no Disallow lines; ToS restricts automated access + PerimeterX",
+      "robots_status": "PERMISSIVE_TOS_WINS",
+      "policy_status": "RESTRICTED_DOCUMENTED"
+    },
+    {
+      "source_id": "mmt-portal",
+      "name": "MakeMyTrip (makemytrip.com)",
+      "source_type": "OTA",
+      "url": "https://www.makemytrip.com",
+      "robots_fixture": "robots_mmt.txt",
+      "robots_evidence": "Disallow: /flight/search*",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "REJECTED_ROBOTS_OR_TOS"
+    },
+    {
+      "source_id": "goibibo-portal",
+      "name": "Goibibo (goibibo.com)",
+      "source_type": "OTA",
+      "url": "https://www.goibibo.com",
+      "robots_fixture": "robots_goibibo.com.txt",
+      "robots_evidence": "Disallow: /flights/*?mode=* (MMT-family rules)",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "REJECTED_ROBOTS_OR_TOS"
+    },
+    {
+      "source_id": "easemytrip-portal",
+      "name": "EaseMyTrip (easemytrip.com)",
+      "source_type": "OTA",
+      "url": "https://www.easemytrip.com",
+      "robots_fixture": "robots_easemytrip.com.txt",
+      "robots_evidence": "Disallow: /flight-search/listing*",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "RESTRICTED_DOCUMENTED"
+    },
+    {
+      "source_id": "cleartrip-portal",
+      "name": "Cleartrip (cleartrip.com)",
+      "source_type": "OTA",
+      "url": "https://www.cleartrip.com",
+      "robots_fixture": "robots_cleartrip.com.txt",
+      "robots_evidence": "Disallow: /flights/search*",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "REJECTED_ROBOTS_OR_TOS"
+    },
+    {
+      "source_id": "ixigo-portal",
+      "name": "Ixigo (ixigo.com)",
+      "source_type": "OTA",
+      "url": "https://www.ixigo.com",
+      "robots_fixture": "robots_ixigo.com.txt",
+      "robots_evidence": "Disallow: /flights/search + ToS bans automated access outright",
+      "robots_status": "DISALLOWS_SEARCH",
+      "policy_status": "REJECTED_ROBOTS_OR_TOS"
+    }
+  ]
+}

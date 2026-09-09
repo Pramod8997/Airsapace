@@ -41,8 +41,8 @@ BASKET_VERSION = "BASKET-2026.09"
 WEIGHT_VERSION = "WB-2026.09-DGCA"
 WEIGHT_SOURCE = "DGCA DOM city-pair passenger data (July 2026)"
 DGCA_WEIGHTS_PATH = Path("data/fixtures/dgca_citypair_weights.json")
-BASE_PERIOD_START = date(2026, 6, 25)
-BASE_PERIOD_END = date(2026, 7, 24)  # first 30 days (TRD §9.1)
+BASE_PERIOD_START = date(2025, 8, 25)
+BASE_PERIOD_END = date(2025, 9, 23)  # first 30 days (TRD §9.1); precedes the CPI window
 # Real tariff snapshot lands on the last replay day (tariff is advance-agnostic).
 ALLIANCE_COLLECTION_DAY = date(2026, 9, 7)
 
@@ -122,6 +122,12 @@ def seed_registries(session, base_start: date = BASE_PERIOD_START, base_end: dat
         rate_limit_per_hour=120, active=True, reliability=0.90,
     ))
     session.add(Source(
+        id="scrape-portal-js-demo", name="Local Demo Fare Portal (JS-rendered)",
+        source_type="OTA", adapter_name="js_engine", adapter_version="1.0",
+        policy_status="DEMO_SCRAPING_COMPLIANT", robots_status="ALLOWED_LOCAL",
+        rate_limit_per_hour=120, active=True, reliability=0.90,
+    ))
+    session.add(Source(
         id="alliance-tariff", name="Alliance Air Published Tariff (15MAR23)",
         source_type="AIRLINE", adapter_name="alliance_tariff", adapter_version="1.0",
         policy_status="PUBLISHED_TARIFF_PDF", robots_status="N/A_PDF",
@@ -139,6 +145,11 @@ def seed_registries(session, base_start: date = BASE_PERIOD_START, base_end: dat
         policy_status="ROBOTS_ALLOWED_SEO", robots_status="ALLOWED",
         rate_limit_per_hour=12, active=True, reliability=0.90,
     ))
+    # PS-named portals we do NOT collect from (IndiGo, Air India, AIX, SpiceJet,
+    # MMT, Goibibo, EaseMyTrip, Cleartrip, Ixigo): registered with the frozen
+    # research verdicts so the Sources page documents why each is absent.
+    from scripts.probe_sources import register_probed_sources
+    register_probed_sources(session)
     for route_id in ROUTES:
         origin, dest = route_id.split("-")
         session.add(Route(

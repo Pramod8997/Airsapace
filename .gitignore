@@ -101,6 +101,9 @@ data/*.db
 data/*.db-*
 data/*.sqlite*
 data/raw/
+# Replay dataset is deterministically regenerable (seeded generator) and the
+# extended 12-month window would exceed GitHub's 100MB file limit.
+data/fixtures/replay_quotes.jsonl
 
 # Internal / Legacy Documentation
 README_internal.md

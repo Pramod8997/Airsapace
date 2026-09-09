@@ -36,11 +36,14 @@ The platform is honest by design. Every published number carries its methodology
 | Canonical data model | Every observation from every source maps to one validated schema; raw observations are immutable (RAW to PROCESSED to INDEX, never overwritten). |
 | Quality scoring | Every observation carries a quality score; availability is modelled explicitly as AVAILABLE, SOLD_OUT, MISSING, INVALID, IMPUTED, or REJECTED. Missing and sold-out fares are never counted as zero. |
 | Outlier policy | MAD-based detection flags suspicious fares — flagged for review, never silently deleted. An expensive fare is not automatically an outlier. |
-| Replay-first operation | A seeded 30-day replay dataset (14,600+ observations, 10 trunk routes, 5 advance-purchase windows) means the dashboard and every demo work without live scraping. |
-| Backtesting | MAE, RMSE, MAPE, correlation, and trend-direction accuracy computed against a reference series over the replay window. |
-| Evidence-first dashboard | Nine screens in an "Airspace Observatory" design: every figure links back to its methodology, sample size, and data confidence. |
+| Replay-first operation | A seeded 12-month replay dataset (72,010 jobs, 185,000+ observations, 10 trunk routes, 5 advance-purchase windows) means the dashboard and every demo work without live scraping. |
+| Backtesting | MAE, RMSE, MAPE, correlation, and trend-direction accuracy against the official MoSPI CPI Airfare sub-index — the replay window covers all 6 published months of the series, so the monthly-mean comparison aligns on every available official point. |
+| Evidence-first dashboard | Eleven screens in an "Airspace Observatory" design: every figure links back to its methodology, sample size, and data confidence. |
 | Versioned everything | Methodology, route basket, weights, processor, adapters, and calculation runs are all versioned and queryable through the API. |
-| Ethical collection contract | Adapters respect robots.txt and terms of service, rate-limit, time out, detect CAPTCHA and pause on restriction. No bypass of any access control, ever. |
+| Ethical collection contract | Adapters respect robots.txt and terms of service, rate-limit, time out, retry with backoff (bounded, never on policy stops), detect CAPTCHA/Cloudflare/Akamai and pause on restriction. No bypass of any access control, ever. |
+| JS-rendered collection | An optional Playwright path renders JavaScript fare pages through the identical compliance gate (robots → rate limit → render → CAPTCHA detect → pause), demonstrated live on the local sim portal's JS endpoint. |
+| Scheduled daily extraction | `scripts/schedule_collect.py` runs the daily collect → clean → index cycle at 08:00 IST (APScheduler, idempotent job keys — cron equivalent: `0 8 * * *`). |
+| Honest source registry | Every PS-named airline/OTA appears on the Sources screen with its frozen compliance verdict (restricted / rejected with the verbatim robots.txt evidence) — absence is documented diligence, never silence. |
 
 ## How it works
 
@@ -69,7 +72,7 @@ A fixed-basket Laspeyres-style index where each specification $i$ is a route x a
 - **Missing data is reweighting, not imputation.** A spec with no valid observation on a given day drops out of both numerator and denominator — a documented, honest policy rather than a fabricated value.
 - **Sold-out is not zero.** Availability states keep sold-out and missing fares distinct from observed prices.
 - **Flagged, never deleted.** MAD-based outlier detection marks suspicious observations with reasons; raw data stays untouched.
-- **Base period:** 2026-06-25 to 2026-07-24 (index = 100). Methodology `APIX-v1.0`, basket `BASKET-2026.09`, weights `WB-2026.09-prototype`.
+- **Base period:** 2025-08-25 to 2025-09-23 (index = 100). Methodology `APIX-v1.0`, basket `BASKET-2026.09`, weights `WB-2026.09-DGCA` (DGCA DOM city-pair passenger shares, July 2026).
 
 ## Architecture
 
@@ -97,9 +100,10 @@ A fixed-basket Laspeyres-style index where each specification $i$ is a route x a
 | API | Python 3.10+, FastAPI, Pydantic v2, OpenAPI/Swagger at `/docs` |
 | Persistence | SQLAlchemy 2, SQLite by default, PostgreSQL via `DATABASE_URL` |
 | Statistical engine | Pure Python (standard library only) — deliberately dependency-free and auditable |
-| Collection | httpx-based adapter contract with rate limiting, timeouts, bounded retries, robots.txt/ToS policy checks |
+| Collection | httpx adapter contract (robots.txt/ToS gate, rate limiting, timeouts, bounded retries) + optional Playwright JS-rendering path behind the same gate |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, Apache ECharts, TanStack Query, React Router |
-| Testing | Pytest (42 backend tests covering the pipeline, index engine, outliers, quality, backtest, and API) |
+| Scheduling | APScheduler — `scripts/schedule_collect.py`, daily at 08:00 IST |
+| Testing | Pytest (152 backend tests covering the pipeline, index engine, outliers, quality, backtest, API, scraping engine, JS path, probe, and scheduler) |
 
 ## Quick start
 
@@ -133,6 +137,30 @@ cd frontend && npm install && npm run dev          # dashboard on :5173
 ```
 
 The dashboard consumes the API same-origin through the Vite dev proxy, so no CORS configuration is exposed in development.
+
+## Scheduled daily extraction
+
+```bash
+.venv/bin/python scripts/schedule_collect.py            # daily at 08:00 IST
+.venv/bin/python scripts/schedule_collect.py --at 09:30 # custom time
+.venv/bin/python scripts/schedule_collect.py --once     # run one cycle now, then schedule
+```
+
+Each cycle collects for **today** (real clock — not the demo's virtual clock), ingests, flags outliers, and recalculates the index. Jobs are idempotent on the TRD §11 job key (source + route + departure_date + lead_time + collection_date), so a missed, late, or double-firing run deduplicates instead of duplicating. Production cron equivalent: `0 8 * * *`.
+
+## JS-rendered collection (Playwright, optional)
+
+The problem statement requires handling JavaScript-rendered pages. `collectors/sources/js_engine.py` renders them with headless Chromium **through the identical compliance gate** — robots.txt first, per-source rate limit, declared user agent, CAPTCHA/anti-bot detection on the rendered DOM, `SourcePolicyError` (pause, never bypass) on any restriction. Session management is the browser context. No stealth plugins, no headless-detection evasion, ever.
+
+It is demonstrated on the local sim portal: `/flights/search-js` serves an empty shell whose script injects fares client-side — a static fetch sees nothing, the Playwright path sees the fares. Everything else in the platform works without Playwright installed; to enable it:
+
+```bash
+.venv/bin/pip install playwright && .venv/bin/playwright install chromium
+```
+
+## Source probe — why every PS-named portal is accounted for
+
+`scripts/probe_sources.py` registers IndiGo, Air India, Air India Express, SpiceJet, MakeMyTrip, Goibibo, EaseMyTrip, Cleartrip, and Ixigo with their frozen compliance verdicts (`RESTRICTED_DOCUMENTED` / `REJECTED_ROBOTS_OR_TOS`) and the verbatim robots.txt evidence, from `docs/research_sources.md` + `data/fixtures/robots/`. They are registered `active=False` — never collected, only accounted for — so the Sources screen documents why each named source is absent. `--live` re-fetches robots.txt evidence; verdicts change only through the research doc.
 
 ## API
 
