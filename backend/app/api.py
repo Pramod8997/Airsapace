@@ -1,5 +1,5 @@
 """REST API v1 — FR-16 endpoints. All read-only GETs; auth lands with the first
-write endpoint (deferred per CLAUDE.md §6 priority order).
+write endpoint (deferred).
 """
 from __future__ import annotations
 
@@ -416,7 +416,7 @@ def forecast(
     """Holt's linear exponential smoothing forecast of the national APIx series.
 
     Auxiliary read-only layer — forecasts are model extrapolations, never part
-    of the index calculation (CLAUDE.md invariant).
+    of the index calculation (core architectural invariant).
     """
     from statistical_engine.forecast import FORECAST_DISCLAIMER, holt_forecast
 

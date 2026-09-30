@@ -67,6 +67,16 @@ def _natural_key(q: FlightQuote) -> tuple:
     )
 
 
+def _ts_greater(a: datetime | None, b: datetime | None) -> bool:
+    if b is None:
+        return True
+    if a is None:
+        return False
+    a_val = a.replace(tzinfo=None) if a.tzinfo is not None else a
+    b_val = b.replace(tzinfo=None) if b.tzinfo is not None else b
+    return a_val > b_val
+
+
 def ingest_quotes(
     session: Session,
     job_spec: JobSpec,
@@ -200,9 +210,11 @@ def ingest_quotes(
         job.status = result.status = "PARTIAL"
 
     if job.status == "FAILED":
-        source.last_failure_at = job_spec.started_at
+        if _ts_greater(job_spec.started_at, source.last_failure_at):
+            source.last_failure_at = job_spec.started_at
     else:
-        source.last_success_at = job_spec.started_at
+        if _ts_greater(job_spec.started_at, source.last_success_at):
+            source.last_success_at = job_spec.started_at
 
     result.job_id = job.id
     log.info("ingest", extra={"job": job.id, "status": result.status, "received": result.received})

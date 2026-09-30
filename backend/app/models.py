@@ -2,7 +2,7 @@
 
 Layering: RAW (RawObservation, immutable) -> PROCESSED (FareQuote + QualityAssessment)
 -> INDEX (IndexValue, versioned, idempotent). Raw is never overwritten with
-cleaned values (CLAUDE.md invariant).
+cleaned values (core architectural invariant).
 """
 from __future__ import annotations
 

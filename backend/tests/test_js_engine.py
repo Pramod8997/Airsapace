@@ -123,6 +123,10 @@ def test_browser_render_path_end_to_end():
             break
         except RuntimeError:
             continue
+        except Exception as exc:
+            if "playwright" in str(exc).lower() or "executable" in str(exc).lower():
+                pytest.skip(f"playwright chromium binary not installed: {exc}")
+            raise
     else:
         pytest.fail("JS render never produced quotes")
     assert quotes

@@ -1,5 +1,5 @@
-# RULES — Operating Contract · v2.0
-For humans and AI agents. Replaces the rules section of `CLAUDE.md`. Keep `CLAUDE.md` as a 5-line pointer: `Read RULES.md, MEMORY.md, TASKS.md first. Then ARCHITECTURE.md/PRD.md/DESIGN.md as needed.`
+# RULES — Engineering & Architectural Operating Contract · v2.0
+Core architectural invariants and engineering standards for AirStat India. Read RULES.md, MEMORY.md, and TASKS.md first; consult ARCHITECTURE.md / PRD.md / DESIGN.md for system architecture.
 
 ## A. Hard rules (never break)
 | # | Rule |
@@ -25,12 +25,12 @@ For humans and AI agents. Replaces the rules section of `CLAUDE.md`. Keep `CLAUD
 - R17 Every source registered with an honest `policy_status` and verbatim evidence; absence is documented diligence.
 - R18 Conventional commits (`feat|fix|docs|test|chore(scope): …`). One concern per commit. Never commit generated fixtures > 50 MB.
 
-## C. Agent workflow (token-efficient)
-1. Read `MEMORY.md` → `TASKS.md` (pick top unchecked P-item). Do not read the whole repo; use `graphify`/grep and open only touched files. Respect `.claudeignore`.
-2. State a 3-line plan (files, tests, done-when). Implement. Run only relevant tests, then the full suite once.
-3. Update `TASKS.md` (tick), `MEMORY.md` (state/decisions), `log.md` (entry). Stop.
-4. Don't refactor unrelated code, restyle, or add features not in TASKS. Ask when a rule conflicts with a task.
-5. Prefer deleting code over adding it. `ponytail` discipline stays on.
+## C. Development Workflow
+1. Read `MEMORY.md` → `TASKS.md` (pick top unchecked task). Open only touched files and keep diffs targeted.
+2. Formulate a clear plan (files, tests, done-when). Implement cleanly. Run relevant unit and integration tests, then the full test suite.
+3. Update `TASKS.md` (tick completed items), `MEMORY.md` (state/decisions), and `log.md` (detailed entry).
+4. Do not refactor unrelated code or restyle without justification.
+5. Prefer clean, minimalist implementations: skip unnecessary abstractions, reuse existing utilities and stdlib modules.
 
 ## D. Statistical conventions
 - Price basis: consumer-payable total; also store base/taxes/UDF/convenience fees.
@@ -45,5 +45,5 @@ robots.txt gate (RFC 9309 longest-match) ✔ · declared UA with contact ✔ · 
 ## F. Definition of Done
 Tests pass · docs synced · no rule violated · version ids updated if numbers changed · UI shows mode/version/Q · log entry written.
 
-## G. Communication style (agents)
-Concise. Lead with result. No restating the task. Diffs over full files. Flag uncertainty and unverified claims explicitly (e.g. "verify MoSPI method").
+## G. Code Review & PR Standards
+All code changes must be focused, well-documented, accompanied by unit tests, and maintain deterministic statistical reproducibility. Flag uncertainty and unverified claims explicitly.

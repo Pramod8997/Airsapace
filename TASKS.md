@@ -10,7 +10,7 @@ Effort: S ≤ 2 h · M ≤ ½ day · L ≤ 1 day. **DoD** = RULES §F.
 - [ ] **T0.3 (S)** Add repo description + topics; pin screenshots; add "Not official CPI" line.
 - [ ] **T0.4 (M)** Record 3-min demo video using PRD §10 script (screen capture of existing UI is enough today).
 - [ ] **T0.5 (S)** Add `docs/SCRAPING_STRATEGY.md` (1 page): PS-vs-compliance stance, ladder table, probe evidence table from `source_probe.json`.
-- [ ] **T0.6 (S)** Copy these six docs into repo; `git mv memory.md MEMORY.md` (case-insensitive FS: do via temp name); reduce `CLAUDE.md` to pointer; TRD.md gets header "superseded by ARCHITECTURE.md".
+- [ ] **T0.6 (S)** Copy architectural docs into repo; `git mv memory.md MEMORY.md` (case-insensitive FS: do via temp name); TRD.md gets header "superseded by ARCHITECTURE.md".
 
 ## P1 — Must-have wins (next 2–4 days)
 - [ ] **T1.1 (L)** Public deployment (one container, free tier, compact seeded DB). **DoD:** URL loads Overview in < 3 s; mode ribbon says REPLAY/DEMO honestly.

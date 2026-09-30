@@ -1,7 +1,7 @@
 """Forecast module tests: Holt linear extrapolation, determinism, API contract.
 
 Forecast — model extrapolation, not an observed price, never part of the index
-calculation (CLAUDE.md invariant; disclaimer surfaced by the API).
+calculation (core architectural invariant; disclaimer surfaced by the API).
 """
 from __future__ import annotations
 

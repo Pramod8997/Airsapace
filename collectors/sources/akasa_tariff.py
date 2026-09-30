@@ -136,21 +136,21 @@ def parse_fare_sheet(text: str, query: FlightSearchQuery,
 
 
 def extract_pdf_text(pdf_path: Path) -> str:
-    """Run pdftotext -layout. Raises FileNotFoundError if the binary is absent."""
-    proc = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        capture_output=True, text=True, timeout=60, check=True,
-    )
-    return proc.stdout
-
-
-def extract_pdf_text(pdf_path: Path) -> str:
-    """Run pdftotext -layout. Raises FileNotFoundError if the binary is absent."""
-    proc = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        capture_output=True, text=True, timeout=60, check=True,
-    )
-    return proc.stdout
+    """Run pdftotext -layout. Falls back to pypdf if pdftotext is absent."""
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-layout", str(pdf_path), "-"],
+            capture_output=True, text=True, timeout=60, check=True,
+        )
+        return proc.stdout
+    except (FileNotFoundError, subprocess.SubprocessError):
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(pdf_path)
+            return "\n".join([page.extract_text() for page in reader.pages])
+        except Exception as err:
+            log.warning("Failed to extract PDF text with pypdf: %s", err)
+            raise
 
 
 async def fetch_pdf(engine: ScrapeEngine | None = None) -> Path:

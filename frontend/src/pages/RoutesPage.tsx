@@ -142,26 +142,69 @@ function RouteMap({ routes, series, selected, onSelect }: {
     })
     mapRef.current = map
 
-    const getTileUrl = () => {
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')
-      return isDark
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')
+
+    const darkCanvas = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+        maxZoom: 16,
+      }
+    )
+
+    const lightCanvas = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+        maxZoom: 16,
+      }
+    )
+
+    const openStreetMap = L.tileLayer(
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }
+    )
+
+    const satellite = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+        maxZoom: 18,
+      }
+    )
+
+    const initialLayer = isDark ? darkCanvas : lightCanvas
+    initialLayer.addTo(map)
+    tileLayerRef.current = initialLayer
+
+    const baseMaps = {
+      'Dark Canvas': darkCanvas,
+      'Light Canvas': lightCanvas,
+      'OpenStreetMap': openStreetMap,
+      'Satellite': satellite,
     }
+    L.control.layers(baseMaps, undefined, { position: 'topright' }).addTo(map)
 
-    const tileLayer = L.tileLayer(getTileUrl(), {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map)
+    map.on('baselayerchange', (e: L.LayersControlEvent) => {
+      tileLayerRef.current = e.layer as L.TileLayer
+    })
 
-    tileLayerRef.current = tileLayer
     const routesGroup = L.layerGroup().addTo(map)
     routesLayerRef.current = routesGroup
 
     const handleThemeChange = () => {
-      if (tileLayerRef.current) {
-        tileLayerRef.current.setUrl(getTileUrl())
+      const nowDark = document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')
+      if (tileLayerRef.current === darkCanvas && !nowDark) {
+        map.removeLayer(darkCanvas)
+        lightCanvas.addTo(map)
+        tileLayerRef.current = lightCanvas
+      } else if (tileLayerRef.current === lightCanvas && nowDark) {
+        map.removeLayer(lightCanvas)
+        darkCanvas.addTo(map)
+        tileLayerRef.current = darkCanvas
       }
     }
     window.addEventListener('themechange', handleThemeChange)

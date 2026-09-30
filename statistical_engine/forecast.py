@@ -2,7 +2,7 @@
 
 Forecast — model extrapolation, NOT an observed price. Forecasts are produced by
 an auxiliary model that NEVER participates in the official index calculation
-(CLAUDE.md invariant: the index engine is deterministic; forecasting is a
+(core architectural invariant: the index engine is deterministic; forecasting is a
 read-only layer on top of published IndexValues). Uncertainty is real: results
 are shown with an explicit disclaimer on the API and dashboard.
 

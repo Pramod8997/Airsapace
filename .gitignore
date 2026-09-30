@@ -108,15 +108,19 @@ data/fixtures/replay_quotes.jsonl
 # Internal / Legacy Documentation
 README_internal.md
 
-# Agent & Knowledge Graph Artifacts (.claudeignore parity)
+# AI Assistant, Prompt & Knowledge Graph Artifacts
 graphify-out/
 graph.json
 .gemini/
 .claude/
+.claudeignore
 .agents/
 .cursor/
 .windsurf/
 .antigravity/
+.mcp.json
+prompt*.md
+CLAUDE*.md
 
 # Operating System Files
 .DS_Store

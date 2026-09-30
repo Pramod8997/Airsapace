@@ -22,7 +22,7 @@ Strategy (2026-09-30): **win on robustness and interoperability, not on scraping
 | Issue | Action |
 |---|---|
 | README stale (30-day/14.6k obs/42 tests/base 2026-06-25/`WB-2026.09-prototype`) vs real state above | TASKS T0.1 |
-| Docs named differently (TRD, UI_UX_DESIGN, CLAUDE, memory.md) vs new set | TASKS T0.6 |
+| Docs named differently (TRD, UI_UX_DESIGN, memory.md) vs new set | TASKS T0.6 |
 | No public URL | T1.1 |
 | Real-data volume thin; replay is synthetic | Be explicit in every demo; grow real days daily |
 

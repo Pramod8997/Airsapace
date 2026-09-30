@@ -4,7 +4,7 @@ HONESTY: this flags *candidate* shocks with supporting evidence (lead window,
 availability change, source consensus). It does NOT prove causation — a flagged
 fare may be demand, capacity, data timing, or a short-lived quote. It is
 ML-adjacent analysis over stored data and is NEVER part of the official index
-calculation (CLAUDE.md invariant: index engine stays deterministic and
+calculation (core architectural invariant: index engine stays deterministic and
 statistics-only).
 
 Deterministic and versioned: same rows + parameters -> same records; any change

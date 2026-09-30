@@ -86,7 +86,7 @@ def test_schema_validity_and_advance_days(sheet):
 
 
 def test_uncovered_route_returns_empty(sheet):
-    assert parse_fare_sheet(sheet, _query("DEL", "BOM"), collected_date=COLLECTED) == []
+    assert parse_fare_sheet(sheet, _query("PAT", "GAU"), collected_date=COLLECTED) == []
 
 
 @pytest.mark.anyio

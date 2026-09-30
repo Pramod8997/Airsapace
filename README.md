@@ -221,13 +221,12 @@ docs/screenshots/      Dashboard screenshots used in this README
 
 | Document | Contents |
 |---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Technical architecture, pipeline stages, database schema, API contracts |
+| [RULES.md](RULES.md) | Architectural invariants, data ethics, statistical conventions |
 | [PRD.md](PRD.md) | Product requirements, user journeys, functional requirements, acceptance criteria |
-| [TRD.md](TRD.md) | Technical architecture, stack decisions, database schema, API contracts |
 | [SECURITY.md](SECURITY.md) | Threat model, secrets policy, SSRF/CORS/headers, audit logging |
 | [UI_UX_DESIGN.md](UI_UX_DESIGN.md) | Airspace Observatory design specification |
 | [log.md](log.md) | Chronological development log |
-
-`CLAUDE.md` contains the operating contract for AI coding agents working in this repository.
 
 ---
 

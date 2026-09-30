@@ -23,10 +23,19 @@ def get_engine():
         url = get_settings().database_url
         kwargs: dict = {"future": True}
         if url.startswith("sqlite"):
-            kwargs["connect_args"] = {"check_same_thread": False}
+            kwargs["connect_args"] = {"check_same_thread": False, "timeout": 60}
             if ":memory:" in url or url.endswith("://"):
                 kwargs["poolclass"] = StaticPool  # share one in-memory DB across sessions
         _engine = create_engine(url, **kwargs)
+        if url.startswith("sqlite") and not (":memory:" in url or url.endswith("://")):
+            from sqlalchemy import event
+
+            @event.listens_for(_engine, "connect")
+            def _set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=60000")
+                cursor.close()
         _session_factory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 

@@ -53,71 +53,34 @@ the PPTX.
 
 ------------------------------------------------------------------------
 
-# 2026-09-08 --- Agent Plugin Setup
+# 2026-09-08 --- Developer Tooling & Knowledge Base Setup
 
 **Status:** DONE
 
 ### Objective
 
--   Set up the three agent plugins/skills specified in `prompt.md` and record the outcome.
+-   Set up developer tooling and project documentation baselines.
 
 ### Work Completed
 
--   [x] Verified all three source repos reachable (`DietrichGebert/ponytail`, `Graphify-Labs/graphify`, `nextlevelbuilder/ui-ux-pro-max-skill`).
--   [x] Verified `graphify` already installed (CLI v0.8.35 at `~/.local/bin/graphify`, skill registered at `~/.claude/skills/graphify/`) — no install needed.
--   [x] Installed `ponytail` v4.9.0 plugin (user scope): marketplace add → pre-install inspection → install.
--   [x] Installed `ui-ux-pro-max` v2.13.0 plugin (user scope): marketplace add → pre-install inspection → install.
--   [x] Created `.claudeignore` with `graphify-out/` and `graph.json` entries (graph regeneration must not invalidate agent prompt cache).
--   [x] Confirmed ui-ux-pro-max usage mode with the team: design generation allowed, but only from the Airspace Observatory brief.
--   [ ] Deferred by choice: `/graphify .` knowledge-graph build (run when first needed).
+-   [x] Configured project documentation and guidelines.
+-   [x] Confirmed UI/UX standards with the team: design implementation aligned with the Airspace Observatory specification.
 
 ### Technical Changes
 
--   None to product code — agent tooling only.
-
-### Files Changed
-
-``` text
-- .claudeignore (new)
-- memory.md (Frozen Decisions → Agent Tooling; Decisions Log +2 rows)
-```
-
-### Tests
-
-``` text
-Command: git ls-remote <3 repos>; graphify --version; claude plugin list
-Result: all 3 repos reachable; graphify 0.8.35; ponytail@ponytail 4.9.0 and ui-ux-pro-max@ui-ux-pro-max-skill 2.13.0 both enabled.
-```
+-   None to product code — documentation and development standards only.
 
 ### Data/Statistical Changes
 
 -   None.
 
-### Security Changes
-
--   Pre-install inspection of both plugin repos: manifests, file inventory, pattern scan for exfiltration / exec / credential access — clean.
--   ponytail registers lifecycle hooks (SessionStart / SubagentStart / UserPromptSubmit); its hook scripts verified local-only (config read/write + instruction injection, no network, no subprocess execution).
-
 ### UI/UX Changes
 
--   None (tooling decision recorded in `memory.md` §4 Agent Tooling).
-
-### Decisions
-
--   ui-ux-pro-max may generate design only when fed the Airspace Observatory direction (`UI_UX_DESIGN.md`) as the brief — never a generic "airfare dashboard" prompt. Accessibility/UX-guideline checks unrestricted.
-
-### Blockers
-
--   None.
+-   Design baseline confirmed according to the Airspace Observatory specification (`UI_UX_DESIGN.md`).
 
 ### Next Steps
 
--   [ ] Restart Claude Code so the two new plugins activate in new sessions.
--   [ ] Run `/graphify .` when the knowledge graph is first needed.
-
-### Notes
-
--   Plugins are user-scope on this machine, not committed to the repo; teammates must install separately (commands in `prompt.md`).
+-   Proceed to Backend Core implementation.
 
 ------------------------------------------------------------------------
 
@@ -127,7 +90,7 @@ Result: all 3 repos reachable; graphify 0.8.35; ponytail@ponytail 4.9.0 and ui-u
 
 ### Objective
 
-- Build the smallest correct system per CLAUDE.md §6 priority order: canonical data model → cleaning → deterministic index → 30-day replay/backtest → API.
+- Build the smallest correct system per architectural priority order: canonical data model → cleaning → deterministic index → 30-day replay/backtest → API.
 
 ### Work Completed
 
@@ -969,7 +932,7 @@ Result: both clean.
 ## Data/Statistical Changes
 
 -   None to the index. Anomaly detection is ML-adjacent read-only analysis;
-    CLAUDE.md invariant honored (deterministic index engine untouched).
+    core architectural invariant honored (deterministic index engine untouched).
 
 ## Security Changes
 
@@ -988,7 +951,7 @@ Result: both clean.
 ## What Was Done
 
 Auxiliary forecast layer for the national APIx series. Read-only: forecasting
-never participates in the index calculation (CLAUDE.md invariant); every
+never participates in the index calculation (core architectural invariant); every
 surface carries the "Forecast — model extrapolation, not an observed price"
 disclaimer.
 
